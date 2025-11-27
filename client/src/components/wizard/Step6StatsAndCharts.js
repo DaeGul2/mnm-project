@@ -12,6 +12,12 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+const COLORS = {
+  primary: "#1976d2",   // 파란색
+  secondary: "#ff9800", // 주황색
+  muted: "#90a4ae",     // 회청색 (보조용)
+};
+
 function isNumericLike(value) {
   if (value === null || value === undefined) return false;
   const s = String(value).trim();
@@ -28,7 +34,7 @@ function toNumberOrNull(value) {
 // 클립보드로 "이미지 복사" 버튼
 function CopyAsImageButton({ targetRef, label = "이미지로 복사" }) {
   const handleCopy = async () => {
-    const node = targetRef.current;
+    const node = targetRef?.current;
     if (!node) {
       alert("복사할 영역을 찾을 수 없습니다.");
       return;
@@ -261,6 +267,9 @@ export default function Step6StatsAndCharts({
   // 아코디언 open 상태: { [groupName]: boolean }
   const [openGroups, setOpenGroups] = useState({});
 
+  // 각 지원분야 전체 복사용 ref
+  const groupRefs = useRef({});
+
   useEffect(() => {
     setIncludedFieldsByGroup(initialIncludedFields);
   }, [initialIncludedFields]);
@@ -274,7 +283,6 @@ export default function Step6StatsAndCharts({
           next[groupName] = true;
         }
       });
-      // 사라진 그룹은 굳이 정리 안 해도 문제 없음
       return next;
     });
   }, [groupData]);
@@ -501,8 +509,14 @@ export default function Step6StatsAndCharts({
         const passCandidates = candidates.filter(
           (c) => c.phaseRole === "합격"
         );
+        const failCandidates = candidates.filter(
+          (c) => c.phaseRole === "불합격"
+        );
 
         const passScores = passCandidates
+          .map((c) => c.totalScore)
+          .filter((v) => v !== null);
+        const failScores = failCandidates
           .map((c) => c.totalScore)
           .filter((v) => v !== null);
 
@@ -523,13 +537,6 @@ export default function Step6StatsAndCharts({
           groupTotal > 0 ? (passCandidates.length / groupTotal) * 100 : null;
 
         // 전형 결과별 총점 평균 (그래프용)
-        const failCandidates = candidates.filter(
-          (c) => c.phaseRole === "불합격"
-        );
-        const failScores = failCandidates
-          .map((c) => c.totalScore)
-          .filter((v) => v !== null);
-
         const phaseTotalAvgData = [
           {
             phase: "합격",
@@ -622,9 +629,19 @@ export default function Step6StatsAndCharts({
         });
         const availableFields = Array.from(availableFieldsSet);
 
+        // 그룹 전체 복사용 ref 래퍼
+        const groupRefWrapper = {
+          get current() {
+            return groupRefs.current[groupName] || null;
+          },
+        };
+
         return (
           <div
             key={groupName}
+            ref={(el) => {
+              groupRefs.current[groupName] = el;
+            }}
             style={{
               border: "1px solid #ddd",
               borderRadius: "10px",
@@ -639,38 +656,55 @@ export default function Step6StatsAndCharts({
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                cursor: "pointer",
+                gap: "12px",
               }}
-              onClick={() =>
-                setOpenGroups((prev) => ({
-                  ...prev,
-                  [groupName]: !open,
-                }))
-              }
             >
-              <div>
-                <div style={{ fontWeight: 600 }}>
-                  {groupName}{" "}
-                  <span style={{ fontWeight: 400, fontSize: "12px" }}>
-                    (통계 대상 {groupTotal}명)
-                  </span>
+              {/* 왼쪽: 토글 영역 */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  cursor: "pointer",
+                  flex: 1,
+                }}
+                onClick={() =>
+                  setOpenGroups((prev) => ({
+                    ...prev,
+                    [groupName]: !open,
+                  }))
+                }
+              >
+                <div>
+                  <div style={{ fontWeight: 600 }}>
+                    {groupName}{" "}
+                    <span style={{ fontWeight: 400, fontSize: "12px" }}>
+                      (통계 대상 {groupTotal}명)
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: "#666",
+                      marginTop: "2px",
+                    }}
+                  >
+                    전형 합격률{" "}
+                    {groupPassRate !== null
+                      ? `${groupPassRate.toFixed(1)}%`
+                      : "-"}
+                    {cutoffPercent !== null &&
+                      ` · 합격컷 상위 ${cutoffPercent.toFixed(1)}%`}
+                  </div>
                 </div>
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: "#666",
-                    marginTop: "2px",
-                  }}
-                >
-                  전형 합격률{" "}
-                  {groupPassRate !== null
-                    ? `${groupPassRate.toFixed(1)}%`
-                    : "-"}
-                  {cutoffPercent !== null &&
-                    ` · 합격컷 상위 ${cutoffPercent.toFixed(1)}%`}
-                </div>
+                <div style={{ fontSize: "18px" }}>{open ? "▴" : "▾"}</div>
               </div>
-              <div style={{ fontSize: "18px" }}>{open ? "▴" : "▾"}</div>
+
+              {/* 오른쪽: 그룹 전체 복사 버튼 */}
+              <CopyAsImageButton
+                targetRef={groupRefWrapper}
+                label="이 지원분야 전체 복사"
+              />
             </div>
 
             {open && (
@@ -714,7 +748,7 @@ export default function Step6StatsAndCharts({
                               padding: "4px 8px",
                               borderRadius: "999px",
                               border: checked
-                                ? "1px solid #1976d2"
+                                ? `1px solid ${COLORS.primary}`
                                 : "1px solid #ccc",
                               backgroundColor: checked
                                 ? "#e3f2fd"
@@ -932,7 +966,12 @@ export default function Step6StatsAndCharts({
                           <YAxis />
                           <Tooltip />
                           <Legend />
-                          <Bar dataKey="avg" name="총점 평균" />
+                          <Bar
+                            dataKey="avg"
+                            name="총점 평균"
+                            fill={COLORS.primary}
+                            fillOpacity={0.9}
+                          />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -1059,8 +1098,18 @@ export default function Step6StatsAndCharts({
                             <YAxis />
                             <Tooltip />
                             <Legend />
-                            <Bar dataKey="passAvg" name="합격 평균" />
-                            <Bar dataKey="failAvg" name="불합격 평균" />
+                            <Bar
+                              dataKey="passAvg"
+                              name="합격 평균"
+                              fill={COLORS.primary}
+                              fillOpacity={0.9}
+                            />
+                            <Bar
+                              dataKey="failAvg"
+                              name="불합격 평균"
+                              fill={COLORS.secondary}
+                              fillOpacity={0.85}
+                            />
                           </BarChart>
                         </ResponsiveContainer>
                       </div>
@@ -1089,7 +1138,12 @@ export default function Step6StatsAndCharts({
                           <YAxis />
                           <Tooltip />
                           <Legend />
-                          <Bar dataKey="avg" name="총점 평균" />
+                          <Bar
+                            dataKey="avg"
+                            name="총점 평균"
+                            fill={COLORS.primary}
+                            fillOpacity={0.9}
+                          />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
