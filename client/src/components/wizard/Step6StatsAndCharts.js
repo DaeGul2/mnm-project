@@ -370,6 +370,7 @@ export default function Step6StatsAndCharts({
           style={{
             overflowX: "auto",
             resize: "horizontal",
+            width: "100%",
             maxWidth: "100%",
             display: "inline-block",
           }}
@@ -805,6 +806,7 @@ export default function Step6StatsAndCharts({
                           style={{
                             overflowX: "auto",
                             resize: "horizontal",
+                            width: "100%",
                             maxWidth: "100%",
                             display: "inline-block",
                           }}
@@ -997,7 +999,10 @@ export default function Step6StatsAndCharts({
                     ) : (
                       <div style={{ width: "100%", height: 240 }}>
                         <ResponsiveContainer>
-                          <BarChart data={phaseTotalAvgData}>
+                          <BarChart
+                            data={phaseTotalAvgData}
+                            margin={{ top: 30, right: 20, left: 10, bottom: 10 }}  // ✅ 추가
+                          >
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis dataKey="phase" />
                             <YAxis />
@@ -1048,6 +1053,7 @@ export default function Step6StatsAndCharts({
                         style={{
                           overflowX: "auto",
                           resize: "horizontal",
+                          width: "100%",
                           maxWidth: "100%",
                           display: "inline-block",
                         }}
@@ -1152,12 +1158,17 @@ export default function Step6StatsAndCharts({
 
                       <div style={{ width: "100%", height: 280 }}>
                         <ResponsiveContainer>
-                          <BarChart data={fieldChartData}>
+                          <BarChart data={fieldChartData} margin={{ top: 30, right: 20, left: 10, bottom: 10 }}>
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis dataKey="field" />
                             <YAxis />
                             <Tooltip />
-                            <Legend />
+                            <Legend
+                              payload={[
+                                { value: '합격자', type: 'square', color: COLORS.primary },
+                                { value: '불합격자', type: 'square', color: COLORS.secondary },
+                              ]}
+                            />
                             <Bar
                               dataKey="passAvg"
                               name="합격자"
@@ -1204,7 +1215,7 @@ export default function Step6StatsAndCharts({
                   ) : (
                     <div style={{ width: "100%", height: 240 }}>
                       <ResponsiveContainer>
-                        <BarChart data={finalCompareData}>
+                        <BarChart data={finalCompareData} margin={{ top: 30, right: 20, left: 10, bottom: 10 }} >
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis dataKey="group" />
                           <YAxis />
