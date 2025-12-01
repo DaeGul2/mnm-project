@@ -10,11 +10,13 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  Cell,
+  LabelList,
 } from "recharts";
 
 const COLORS = {
-  primary: "#1976d2",   // 파란색
-  secondary: "#ff9800", // 주황색
+  primary: "#1976d2",   // 합격: 파란색
+  secondary: "#8b1a3d", // 불합격: 버건디색
   muted: "#90a4ae",     // 회청색 (보조용)
 };
 
@@ -355,13 +357,23 @@ export default function Step6StatsAndCharts({
     });
   };
 
+  const formatLabelValue = (value) =>
+    value == null ? "" : value.toFixed(1);
+
   return (
     <div>
       <h2>6. 지원분야별 통계 · 그래프</h2>
 
       {/* 지원분야 간 요약 비교 표 */}
       <CopyableSection title="지원분야 간 요약 비교">
-        <div style={{ overflowX: "auto" }}>
+        <div
+          style={{
+            overflowX: "auto",
+            resize: "horizontal",
+            maxWidth: "100%",
+            display: "inline-block",
+          }}
+        >
           <table
             style={{
               width: "100%",
@@ -771,212 +783,253 @@ export default function Step6StatsAndCharts({
                   )}
                 </CopyableSection>
 
-                {/* Big 통계 */}
-                <CopyableSection title="요약 통계 (총점 기준)">
-                  <div style={{ fontSize: "13px" }}>
-                    {totalScores.length === 0 ? (
-                      <div style={{ color: "#999" }}>
-                        총점 데이터가 없어 통계를 계산할 수 없습니다.
-                      </div>
-                    ) : (
-                      <table
+                {/* 요약 통계 + 전형 결과별 합/불 평균을 2열 레이아웃으로 */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(260px, 1fr))",
+                    gap: "12px",
+                    marginBottom: "8px",
+                  }}
+                >
+                  {/* Big 통계 */}
+                  <CopyableSection title="요약 통계 (총점 기준)">
+                    <div style={{ fontSize: "13px" }}>
+                      {totalScores.length === 0 ? (
+                        <div style={{ color: "#999" }}>
+                          총점 데이터가 없어 통계를 계산할 수 없습니다.
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            overflowX: "auto",
+                            resize: "horizontal",
+                            maxWidth: "100%",
+                            display: "inline-block",
+                          }}
+                        >
+                          <table
+                            style={{
+                              borderCollapse: "collapse",
+                              width: "100%",
+                            }}
+                          >
+                            <tbody>
+                              <tr>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                  }}
+                                >
+                                  최고점
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {Math.max(...totalScores).toFixed(2)}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                  }}
+                                >
+                                  최저점
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {Math.min(...totalScores).toFixed(2)}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                  }}
+                                >
+                                  합격자 기준 최저점 (커트라인)
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {cutoff !== null ? cutoff.toFixed(2) : "-"}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                  }}
+                                >
+                                  불합격자 기준 최고점
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {failScores.length
+                                    ? Math.max(...failScores).toFixed(2)
+                                    : "-"}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                  }}
+                                >
+                                  총점 평균
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {totalAvg !== null
+                                    ? totalAvg.toFixed(2)
+                                    : "-"}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                  }}
+                                >
+                                  총점 중앙값
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {totalMed !== null
+                                    ? totalMed.toFixed(2)
+                                    : "-"}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                  }}
+                                >
+                                  총점 표준편차
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderBottom: "1px solid #eee",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {totalStd !== null
+                                    ? totalStd.toFixed(2)
+                                    : "-"}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                  }}
+                                >
+                                  합격컷 상위 %
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 8px",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {cutoffPercent !== null
+                                    ? cutoffPercent.toFixed(1)
+                                    : "-"}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </CopyableSection>
+
+                  {/* 전형 결과별 총점 평균 (그래프) */}
+                  <CopyableSection title="전형 결과별 합/불 총점 평균">
+                    {phaseTotalAvgData.length === 0 ? (
+                      <div
                         style={{
-                          borderCollapse: "collapse",
-                          width: "100%",
+                          fontSize: "12px",
+                          color: "#999",
                         }}
                       >
-                        <tbody>
-                          <tr>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                              }}
+                        합격/불합격 구분 가능한 데이터가 없습니다.
+                      </div>
+                    ) : (
+                      <div style={{ width: "100%", height: 240 }}>
+                        <ResponsiveContainer>
+                          <BarChart data={phaseTotalAvgData}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="phase" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Bar
+                              dataKey="avg"
+                              name="총점 평균"
+                              fillOpacity={0.9}
                             >
-                              최고점
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                                textAlign: "right",
-                              }}
-                            >
-                              {Math.max(...totalScores).toFixed(2)}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                              }}
-                            >
-                              최저점
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                                textAlign: "right",
-                              }}
-                            >
-                              {Math.min(...totalScores).toFixed(2)}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                              }}
-                            >
-                              합격자 기준 최저점 (커트라인)
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                                textAlign: "right",
-                              }}
-                            >
-                              {cutoff !== null ? cutoff.toFixed(2) : "-"}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                              }}
-                            >
-                              불합격자 기준 최고점
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                                textAlign: "right",
-                              }}
-                            >
-                              {failScores.length
-                                ? Math.max(...failScores).toFixed(2)
-                                : "-"}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                              }}
-                            >
-                              총점 평균
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                                textAlign: "right",
-                              }}
-                            >
-                              {totalAvg !== null ? totalAvg.toFixed(2) : "-"}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                              }}
-                            >
-                              총점 중앙값
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                                textAlign: "right",
-                              }}
-                            >
-                              {totalMed !== null ? totalMed.toFixed(2) : "-"}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                              }}
-                            >
-                              총점 표준편차
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                borderBottom: "1px solid #eee",
-                                textAlign: "right",
-                              }}
-                            >
-                              {totalStd !== null ? totalStd.toFixed(2) : "-"}
-                            </td>
-                          </tr>
-                          <tr>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                              }}
-                            >
-                              합격컷 상위 %
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 8px",
-                                textAlign: "right",
-                              }}
-                            >
-                              {cutoffPercent !== null
-                                ? cutoffPercent.toFixed(1)
-                                : "-"}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
+                              <LabelList
+                                dataKey="avg"
+                                position="top"
+                                formatter={formatLabelValue}
+                              />
+                              {phaseTotalAvgData.map((d, idx) => (
+                                <Cell
+                                  key={`cell-${idx}`}
+                                  fill={
+                                    d.phase === "합격"
+                                      ? COLORS.primary
+                                      : COLORS.secondary
+                                  }
+                                />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
                     )}
-                  </div>
-                </CopyableSection>
-
-                {/* 전형 결과별 총점 평균 (그래프) */}
-                <CopyableSection title="전형 결과별 총점 평균 (합격 vs 불합격)">
-                  {phaseTotalAvgData.length === 0 ? (
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#999",
-                      }}
-                    >
-                      합격/불합격 구분 가능한 데이터가 없습니다.
-                    </div>
-                  ) : (
-                    <div style={{ width: "100%", height: 240 }}>
-                      <ResponsiveContainer>
-                        <BarChart data={phaseTotalAvgData}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="phase" />
-                          <YAxis />
-                          <Tooltip />
-                          <Legend />
-                          <Bar
-                            dataKey="avg"
-                            name="총점 평균"
-                            fill={COLORS.primary}
-                            fillOpacity={0.9}
-                          />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </CopyableSection>
+                  </CopyableSection>
+                </div>
 
                 {/* 평가항목별 합/불 평균 + 상관계수 (표 + 그래프) */}
                 <CopyableSection title="평가항목별 합/불 평균 및 합격 공헌도(상관계수)">
@@ -991,7 +1044,14 @@ export default function Step6StatsAndCharts({
                     </div>
                   ) : (
                     <>
-                      <div style={{ overflowX: "auto" }}>
+                      <div
+                        style={{
+                          overflowX: "auto",
+                          resize: "horizontal",
+                          maxWidth: "100%",
+                          display: "inline-block",
+                        }}
+                      >
                         <table
                           style={{
                             width: "100%",
@@ -1100,16 +1160,28 @@ export default function Step6StatsAndCharts({
                             <Legend />
                             <Bar
                               dataKey="passAvg"
-                              name="합격 평균"
+                              name="합격자"
                               fill={COLORS.primary}
                               fillOpacity={0.9}
-                            />
+                            >
+                              <LabelList
+                                dataKey="passAvg"
+                                position="top"
+                                formatter={formatLabelValue}
+                              />
+                            </Bar>
                             <Bar
                               dataKey="failAvg"
-                              name="불합격 평균"
+                              name="불합격자"
                               fill={COLORS.secondary}
-                              fillOpacity={0.85}
-                            />
+                              fillOpacity={0.9}
+                            >
+                              <LabelList
+                                dataKey="failAvg"
+                                position="top"
+                                formatter={formatLabelValue}
+                              />
+                            </Bar>
                           </BarChart>
                         </ResponsiveContainer>
                       </div>
@@ -1141,9 +1213,24 @@ export default function Step6StatsAndCharts({
                           <Bar
                             dataKey="avg"
                             name="총점 평균"
-                            fill={COLORS.primary}
                             fillOpacity={0.9}
-                          />
+                          >
+                            <LabelList
+                              dataKey="avg"
+                              position="top"
+                              formatter={formatLabelValue}
+                            />
+                            {finalCompareData.map((d, idx) => (
+                              <Cell
+                                key={`final-cell-${idx}`}
+                                fill={
+                                  d.group.includes("불합격")
+                                    ? COLORS.secondary
+                                    : COLORS.primary
+                                }
+                              />
+                            ))}
+                          </Bar>
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
