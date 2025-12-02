@@ -1,4 +1,3 @@
-// src/components/wizard/Step6StatsAndCharts.js
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
 import {
@@ -176,6 +175,197 @@ function correlation(xArr, yArr) {
   return c;
 }
 
+// ✅ Step6 전용 그래프/표 도구 모음 (floating)
+function Step6ChartToolbox({
+  barSize,
+  onChangeBarSize,
+  tableWidthScale,
+  onChangeTableWidthScale,
+  chartWidthScale,
+  onChangeChartWidthScale,
+}) {
+  const handleBarSize = (e) => {
+    const value = Number(e.target.value);
+    if (Number.isFinite(value)) onChangeBarSize(value);
+  };
+  const handleTableWidth = (e) => {
+    const value = Number(e.target.value);
+    if (Number.isFinite(value)) onChangeTableWidthScale(value);
+  };
+  const handleChartWidth = (e) => {
+    const value = Number(e.target.value);
+    if (Number.isFinite(value)) onChangeChartWidthScale(value);
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: "110px",
+        right: "24px",
+        zIndex: 2000,
+        width: "240px",
+        maxWidth: "80vw",
+        padding: "10px 12px",
+        borderRadius: "14px",
+        border: "1px solid #d0d7e2",
+        backgroundColor: "rgba(247, 249, 252, 0.96)",
+        boxShadow: "0 4px 14px rgba(0,0,0,0.08)",
+        fontSize: "12px",
+        backdropFilter: "blur(6px)",
+      }}
+    >
+      <div
+        style={{
+          fontWeight: 600,
+          fontSize: "13px",
+          marginBottom: "8px",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+        }}
+      >
+        <span>📊 그래프 · 표 도구</span>
+      </div>
+
+      {/* 막대 너비 */}
+      <div
+        style={{
+          marginBottom: "8px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>막대 너비</span>
+          <span
+            style={{
+              padding: "2px 6px",
+              borderRadius: "999px",
+              border: "1px solid #ccc",
+              backgroundColor: "#fff",
+            }}
+          >
+            {barSize}px
+          </span>
+        </div>
+        <input type="range" min={8} max={60} value={barSize} onChange={handleBarSize} />
+      </div>
+
+      {/* 표 너비 */}
+      <div
+        style={{
+          marginBottom: "8px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>표 너비</span>
+          <span
+            style={{
+              padding: "2px 6px",
+              borderRadius: "999px",
+              border: "1px solid #ccc",
+              backgroundColor: "#fff",
+            }}
+          >
+            {tableWidthScale}%
+          </span>
+        </div>
+        <input
+          type="range"
+          min={60}
+          max={160}
+          value={tableWidthScale}
+          onChange={handleTableWidth}
+        />
+      </div>
+
+      {/* 그래프 전체 너비 */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>그래프 너비</span>
+          <span
+            style={{
+              padding: "2px 6px",
+              borderRadius: "999px",
+              border: "1px solid #ccc",
+              backgroundColor: "#fff",
+            }}
+          >
+            {chartWidthScale}%
+          </span>
+        </div>
+        <input
+          type="range"
+          min={60}
+          max={160}
+          value={chartWidthScale}
+          onChange={handleChartWidth}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ✅ Legend를 무조건 "합격자 → 불합격자" 순서로 고정
+const renderPassFailLegend = () => {
+  const boxStyle = (color) => ({
+    display: "inline-block",
+    width: 12,
+    height: 12,
+    borderRadius: 2,
+    marginRight: 4,
+    backgroundColor: color,
+  });
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: "16px",
+        fontSize: "12px",
+      }}
+    >
+      <span style={{ display: "inline-flex", alignItems: "center" }}>
+        <span style={boxStyle(COLORS.primary)} />
+        합격자
+      </span>
+      <span style={{ display: "inline-flex", alignItems: "center" }}>
+        <span style={boxStyle(COLORS.secondary)} />
+        불합격자
+      </span>
+    </div>
+  );
+};
+
 export default function Step6StatsAndCharts({
   rows,
   mapping,
@@ -190,7 +380,6 @@ export default function Step6StatsAndCharts({
     const phaseField = mapping.phaseResult;
     const finalField = mapping.finalResult;
 
-    // 행 → 역할 계산 함수
     const getPhaseRole = (row) => {
       if (!phaseField) return null;
       const raw = String(row[phaseField] ?? "").trim();
@@ -215,7 +404,6 @@ export default function Step6StatsAndCharts({
 
       groupRows.forEach((row) => {
         const phaseRole = getPhaseRole(row);
-        // 평가제외는 전부 제거
         if (phaseRole === "평가제외") return;
 
         const finalRole = getFinalRole(row);
@@ -249,7 +437,6 @@ export default function Step6StatsAndCharts({
     return result;
   }, [rows, mapping, supportField, supportGroups, resultMapping]);
 
-  // 그룹별 기본 포함 평가항목: 해당 그룹에서 값이 한 번이라도 숫자로 잡힌 항목
   const initialIncludedFields = useMemo(() => {
     const res = {};
     Object.entries(groupData).forEach(([groupName, { candidates }]) => {
@@ -266,10 +453,13 @@ export default function Step6StatsAndCharts({
     initialIncludedFields
   );
 
-  // 아코디언 open 상태: { [groupName]: boolean }
   const [openGroups, setOpenGroups] = useState({});
 
-  // 각 지원분야 전체 복사용 ref
+  // ✅ Step6 전역 막대 너비 / 표 너비 / 그래프 너비 상태
+  const [barSize, setBarSize] = useState(24);
+  const [tableWidthScale, setTableWidthScale] = useState(100);
+  const [chartWidthScale, setChartWidthScale] = useState(100);
+
   const groupRefs = useRef({});
 
   useEffect(() => {
@@ -277,7 +467,6 @@ export default function Step6StatsAndCharts({
   }, [initialIncludedFields]);
 
   useEffect(() => {
-    // 새로 생긴 그룹은 기본적으로 open = true
     setOpenGroups((prev) => {
       const next = { ...prev };
       Object.keys(groupData).forEach((groupName) => {
@@ -289,7 +478,6 @@ export default function Step6StatsAndCharts({
     });
   }, [groupData]);
 
-  // 지원분야 간 요약 비교용 데이터
   const crossGroupSummary = useMemo(() => {
     const rows = [];
 
@@ -361,17 +549,27 @@ export default function Step6StatsAndCharts({
     value == null ? "" : value.toFixed(1);
 
   return (
-    <div>
+    <div style={{ position: "relative" }}>
       <h2>6. 지원분야별 통계 · 그래프</h2>
+
+      {/* ✅ Step 6 전용 floating 도구 모음 */}
+      <Step6ChartToolbox
+        barSize={barSize}
+        onChangeBarSize={setBarSize}
+        tableWidthScale={tableWidthScale}
+        onChangeTableWidthScale={setTableWidthScale}
+        chartWidthScale={chartWidthScale}
+        onChangeChartWidthScale={setChartWidthScale}
+      />
 
       {/* 지원분야 간 요약 비교 표 */}
       <CopyableSection title="지원분야 간 요약 비교">
         <div
           style={{
+            width: `${tableWidthScale}%`,
+            maxWidth: "100%",
             overflowX: "auto",
             resize: "horizontal",
-            width: "100%",
-            maxWidth: "100%",
             display: "inline-block",
           }}
         >
@@ -549,7 +747,6 @@ export default function Step6StatsAndCharts({
         const groupPassRate =
           groupTotal > 0 ? (passCandidates.length / groupTotal) * 100 : null;
 
-        // 전형 결과별 총점 평균 (그래프용)
         const phaseTotalAvgData = [
           {
             phase: "합격",
@@ -561,7 +758,6 @@ export default function Step6StatsAndCharts({
           },
         ].filter((d) => d.avg !== null);
 
-        // 평가항목별 합/불 평균 + 상관계수
         const fieldStats = includedFields.map((field) => {
           const passFieldScores = passCandidates
             .map((c) => c.evalScores[field])
@@ -571,7 +767,6 @@ export default function Step6StatsAndCharts({
             .map((c) => c.evalScores[field])
             .filter((v) => v !== null && v !== undefined);
 
-          // 상관계수 계산용 데이터
           const corrX = [];
           const corrY = [];
           candidates.forEach((c) => {
@@ -606,7 +801,6 @@ export default function Step6StatsAndCharts({
           failAvg: fs.failAvg,
         }));
 
-        // 최종결과 vs 전형결과 조합 비교: 최종합격 vs (최종불합격 + 전형합격)
         const finalPass = candidates.filter((c) => c.finalRole === "합격");
         const finalFailPhasePass = candidates.filter(
           (c) => c.finalRole === "불합격" && c.phaseRole === "합격"
@@ -635,14 +829,12 @@ export default function Step6StatsAndCharts({
 
         const open = openGroups[groupName] ?? true;
 
-        // 평가항목 토글 리스트용: 이 그룹에서 실제로 등장한 평가항목
         const availableFieldsSet = new Set();
         candidates.forEach((c) => {
           Object.keys(c.evalScores).forEach((f) => availableFieldsSet.add(f));
         });
         const availableFields = Array.from(availableFieldsSet);
 
-        // 그룹 전체 복사용 ref 래퍼
         const groupRefWrapper = {
           get current() {
             return groupRefs.current[groupName] || null;
@@ -672,7 +864,6 @@ export default function Step6StatsAndCharts({
                 gap: "12px",
               }}
             >
-              {/* 왼쪽: 토글 영역 */}
               <div
                 style={{
                   display: "flex",
@@ -713,7 +904,6 @@ export default function Step6StatsAndCharts({
                 <div style={{ fontSize: "18px" }}>{open ? "▴" : "▾"}</div>
               </div>
 
-              {/* 오른쪽: 그룹 전체 복사 버튼 */}
               <CopyAsImageButton
                 targetRef={groupRefWrapper}
                 label="이 지원분야 전체 복사"
@@ -784,7 +974,7 @@ export default function Step6StatsAndCharts({
                   )}
                 </CopyableSection>
 
-                {/* 요약 통계 + 전형 결과별 합/불 평균을 2열 레이아웃으로 */}
+                {/* 요약 통계 + 전형 결과별 합/불 평균 2열 */}
                 <div
                   style={{
                     display: "grid",
@@ -794,7 +984,7 @@ export default function Step6StatsAndCharts({
                     marginBottom: "8px",
                   }}
                 >
-                  {/* Big 통계 */}
+                  {/* 요약 통계 */}
                   <CopyableSection title="요약 통계 (총점 기준)">
                     <div style={{ fontSize: "13px" }}>
                       {totalScores.length === 0 ? (
@@ -804,10 +994,10 @@ export default function Step6StatsAndCharts({
                       ) : (
                         <div
                           style={{
+                            width: `${tableWidthScale}%`,
+                            maxWidth: "100%",
                             overflowX: "auto",
                             resize: "horizontal",
-                            width: "100%",
-                            maxWidth: "100%",
                             display: "inline-block",
                           }}
                         >
@@ -997,11 +1187,17 @@ export default function Step6StatsAndCharts({
                         합격/불합격 구분 가능한 데이터가 없습니다.
                       </div>
                     ) : (
-                      <div style={{ width: "100%", height: 240 }}>
+                      <div
+                        style={{
+                          width: `${chartWidthScale}%`,
+                          maxWidth: "100%",
+                          height: 240,
+                        }}
+                      >
                         <ResponsiveContainer>
                           <BarChart
                             data={phaseTotalAvgData}
-                            margin={{ top: 30, right: 20, left: 10, bottom: 10 }}  // ✅ 추가
+                            margin={{ top: 30, right: 20, left: 10, bottom: 10 }}
                           >
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis dataKey="phase" />
@@ -1012,6 +1208,7 @@ export default function Step6StatsAndCharts({
                               dataKey="avg"
                               name="총점 평균"
                               fillOpacity={0.9}
+                              barSize={barSize}
                             >
                               <LabelList
                                 dataKey="avg"
@@ -1036,7 +1233,7 @@ export default function Step6StatsAndCharts({
                   </CopyableSection>
                 </div>
 
-                {/* 평가항목별 합/불 평균 + 상관계수 (표 + 그래프) */}
+                {/* 평가항목별 합/불 평균 + 상관계수 */}
                 <CopyableSection title="평가항목별 합/불 평균 및 합격 공헌도(상관계수)">
                   {fieldStats.length === 0 ? (
                     <div
@@ -1051,10 +1248,10 @@ export default function Step6StatsAndCharts({
                     <>
                       <div
                         style={{
+                          width: `${tableWidthScale}%`,
+                          maxWidth: "100%",
                           overflowX: "auto",
                           resize: "horizontal",
-                          width: "100%",
-                          maxWidth: "100%",
                           display: "inline-block",
                         }}
                       >
@@ -1156,24 +1353,35 @@ export default function Step6StatsAndCharts({
                         </table>
                       </div>
 
-                      <div style={{ width: "100%", height: 280 }}>
+                      <div
+                        style={{
+                          width: `${chartWidthScale}%`,
+                          maxWidth: "100%",
+                          height: 280,
+                        }}
+                      >
                         <ResponsiveContainer>
-                          <BarChart data={fieldChartData} margin={{ top: 30, right: 20, left: 10, bottom: 10 }}>
+                          <BarChart
+                            data={fieldChartData}
+                            margin={{
+                              top: 30,
+                              right: 20,
+                              left: 10,
+                              bottom: 10,
+                            }}
+                          >
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis dataKey="field" />
                             <YAxis />
                             <Tooltip />
-                            <Legend
-                              payload={[
-                                { value: '합격자', type: 'square', color: COLORS.primary },
-                                { value: '불합격자', type: 'square', color: COLORS.secondary },
-                              ]}
-                            />
+                            {/* ✅ Legend 커스텀: 합격자 → 불합격자 */}
+                            <Legend content={renderPassFailLegend} />
                             <Bar
                               dataKey="passAvg"
                               name="합격자"
                               fill={COLORS.primary}
                               fillOpacity={0.9}
+                              barSize={barSize}
                             >
                               <LabelList
                                 dataKey="passAvg"
@@ -1186,6 +1394,7 @@ export default function Step6StatsAndCharts({
                               name="불합격자"
                               fill={COLORS.secondary}
                               fillOpacity={0.9}
+                              barSize={barSize}
                             >
                               <LabelList
                                 dataKey="failAvg"
@@ -1213,9 +1422,18 @@ export default function Step6StatsAndCharts({
                       없습니다.
                     </div>
                   ) : (
-                    <div style={{ width: "100%", height: 240 }}>
+                    <div
+                      style={{
+                        width: `${chartWidthScale}%`,
+                        maxWidth: "100%",
+                        height: 240,
+                      }}
+                    >
                       <ResponsiveContainer>
-                        <BarChart data={finalCompareData} margin={{ top: 30, right: 20, left: 10, bottom: 10 }} >
+                        <BarChart
+                          data={finalCompareData}
+                          margin={{ top: 30, right: 20, left: 10, bottom: 10 }}
+                        >
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis dataKey="group" />
                           <YAxis />
@@ -1225,6 +1443,7 @@ export default function Step6StatsAndCharts({
                             dataKey="avg"
                             name="총점 평균"
                             fillOpacity={0.9}
+                            barSize={barSize}
                           >
                             <LabelList
                               dataKey="avg"
