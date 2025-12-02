@@ -33,7 +33,7 @@ function toNumberOrNull(value) {
 }
 
 // 클립보드로 "이미지 복사" 버튼
-function CopyAsImageButton({ targetRef, label = "이미지로 복사" }) {
+function CopyAsImageButton({ targetRef, label = "클립보드 복사" }) {
   const handleCopy = async () => {
     const node = targetRef?.current;
     if (!node) {
@@ -57,7 +57,7 @@ function CopyAsImageButton({ targetRef, label = "이미지로 복사" }) {
         try {
           const item = new ClipboardItemCtor({ [blob.type]: blob });
           await clipboard.write([item]);
-          alert("이미지 형태로 클립보드에 복사했습니다.");
+          alert("이미지 형태로 클립보드에 복사했습니다. (Ctrl+V로 붙여넣기)");
         } catch (err) {
           console.error(err);
           const url = URL.createObjectURL(blob);
@@ -92,8 +92,26 @@ function CopyAsImageButton({ targetRef, label = "이미지로 복사" }) {
 }
 
 // 특정 섹션을 캡쳐 가능한 블록으로 감싸기
-function CopyableSection({ title, children, extraRight }) {
+function CopyableSection({
+  title,
+  children,
+  extraRight,
+  onRegisterSection,
+  sectionId,
+  sectionType, // "표" 또는 "그래프"
+}) {
   const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (onRegisterSection && sectionId) {
+      onRegisterSection({
+        id: sectionId,
+        title,
+        type: sectionType || "표",
+        ref: containerRef,
+      });
+    }
+  }, [onRegisterSection, sectionId, sectionType, title]);
 
   return (
     <div
@@ -461,6 +479,7 @@ export default function Step6StatsAndCharts({
   const [chartWidthScale, setChartWidthScale] = useState(100);
 
   const groupRefs = useRef({});
+  const groupSectionRefs = useRef({}); // 각 지원분야별 섹션 참조 저장
 
   useEffect(() => {
     setIncludedFieldsByGroup(initialIncludedFields);
@@ -548,6 +567,60 @@ export default function Step6StatsAndCharts({
   const formatLabelValue = (value) =>
     value == null ? "" : value.toFixed(1);
 
+  // 지원분야별 섹션 일괄 다운로드
+  const handleDownloadAllSections = async (groupName) => {
+    const sectionsMap = groupSectionRefs.current[groupName] || {};
+    const sections = Object.values(sectionsMap);
+
+    if (!sections.length) {
+      alert("이 지원분야에서 다운로드할 섹션을 찾을 수 없습니다.");
+      return;
+    }
+
+    // id 기준으로 정렬 (01, 02, 03 ... 순서대로)
+    sections.sort((a, b) => {
+      if (a.id < b.id) return -1;
+      if (a.id > b.id) return 1;
+      return 0;
+    });
+
+    for (const section of sections) {
+      const node = section.ref?.current;
+      if (!node) continue;
+
+      try {
+        const canvas = await html2canvas(node, { scale: 2 });
+        const blob = await new Promise((resolve) =>
+          canvas.toBlob(resolve, "image/png")
+        );
+        if (!blob) continue;
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+
+        const safeGroup = String(groupName).replace(/[\\/:*?"<>|]/g, "_");
+        const safeTitle = String(section.title || "section").replace(
+          /[\\/:*?"<>|]/g,
+          "_"
+        );
+        const typePart = section.type === "그래프" ? "그래프" : "표";
+
+        a.href = url;
+        a.download = `${safeGroup}_${typePart}_${safeTitle}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        // 너무 과하게 폭주하지 않게 살짝 딜레이
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => setTimeout(r, 200));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
   return (
     <div style={{ position: "relative" }}>
       <h2>6. 지원분야별 통계 · 그래프</h2>
@@ -562,7 +635,7 @@ export default function Step6StatsAndCharts({
         onChangeChartWidthScale={setChartWidthScale}
       />
 
-      {/* 지원분야 간 요약 비교 표 */}
+      {/* 지원분야 간 요약 비교 표 (전역) */}
       <CopyableSection title="지원분야 간 요약 비교">
         <div
           style={{
@@ -841,6 +914,18 @@ export default function Step6StatsAndCharts({
           },
         };
 
+        const registerSectionForGroup = (info) => {
+          if (!info || !info.id) return;
+          if (!groupSectionRefs.current[groupName]) {
+            groupSectionRefs.current[groupName] = {};
+          }
+          groupSectionRefs.current[groupName][info.id] = info;
+        };
+
+        const handleDownloadAll = () => {
+          handleDownloadAllSections(groupName);
+        };
+
         return (
           <div
             key={groupName}
@@ -904,10 +989,32 @@ export default function Step6StatsAndCharts({
                 <div style={{ fontSize: "18px" }}>{open ? "▴" : "▾"}</div>
               </div>
 
-              <CopyAsImageButton
-                targetRef={groupRefWrapper}
-                label="이 지원분야 전체 복사"
-              />
+              <div
+                style={{
+                  display: "flex",
+                  gap: "8px",
+                  alignItems: "center",
+                }}
+              >
+                <CopyAsImageButton
+                  targetRef={groupRefWrapper}
+                  label="이 지원분야 전체 복사"
+                />
+                <button
+                  type="button"
+                  onClick={handleDownloadAll}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: "999px",
+                    border: "1px solid #666",
+                    backgroundColor: "#fff",
+                    fontSize: "11px",
+                    cursor: "pointer",
+                  }}
+                >
+                  ⬇ 이 지원분야 일괄 다운로드
+                </button>
+              </div>
             </div>
 
             {open && (
@@ -920,6 +1027,9 @@ export default function Step6StatsAndCharts({
                       체크된 항목만 통계/그래프에 반영
                     </span>
                   }
+                  onRegisterSection={registerSectionForGroup}
+                  sectionId="01_fieldToggle"
+                  sectionType="표"
                 >
                   {availableFields.length === 0 ? (
                     <div
@@ -985,7 +1095,12 @@ export default function Step6StatsAndCharts({
                   }}
                 >
                   {/* 요약 통계 */}
-                  <CopyableSection title="요약 통계 (총점 기준)">
+                  <CopyableSection
+                    title="요약 통계 (총점 기준)"
+                    onRegisterSection={registerSectionForGroup}
+                    sectionId="02_summaryStats"
+                    sectionType="표"
+                  >
                     <div style={{ fontSize: "13px" }}>
                       {totalScores.length === 0 ? (
                         <div style={{ color: "#999" }}>
@@ -1176,7 +1291,12 @@ export default function Step6StatsAndCharts({
                   </CopyableSection>
 
                   {/* 전형 결과별 총점 평균 (그래프) */}
-                  <CopyableSection title="전형 결과별 합/불 총점 평균">
+                  <CopyableSection
+                    title="전형 결과별 합/불 총점 평균"
+                    onRegisterSection={registerSectionForGroup}
+                    sectionId="03_phaseTotalAvg"
+                    sectionType="그래프"
+                  >
                     {phaseTotalAvgData.length === 0 ? (
                       <div
                         style={{
@@ -1234,7 +1354,12 @@ export default function Step6StatsAndCharts({
                 </div>
 
                 {/* 평가항목별 합/불 평균 + 상관계수 */}
-                <CopyableSection title="평가항목별 합/불 평균 및 합격 공헌도(상관계수)">
+                <CopyableSection
+                  title="평가항목별 합/불 평균 및 합격 공헌도(상관계수)"
+                  onRegisterSection={registerSectionForGroup}
+                  sectionId="04_fieldStats"
+                  sectionType="그래프"
+                >
                   {fieldStats.length === 0 ? (
                     <div
                       style={{
@@ -1410,7 +1535,12 @@ export default function Step6StatsAndCharts({
                 </CopyableSection>
 
                 {/* 최종 결과 비교 그래프 */}
-                <CopyableSection title="채용 결과별 총점 비교">
+                <CopyableSection
+                  title="채용 결과별 총점 비교"
+                  onRegisterSection={registerSectionForGroup}
+                  sectionId="05_finalCompare"
+                  sectionType="그래프"
+                >
                   {finalCompareData.length === 0 ? (
                     <div
                       style={{
