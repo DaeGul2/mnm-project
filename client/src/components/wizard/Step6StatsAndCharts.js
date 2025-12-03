@@ -19,6 +19,22 @@ const COLORS = {
   muted: "#90a4ae",     // 회청색 (보조용)
 };
 
+// ✅ 스타일 기본값 (표/그래프 관련 설정 한 번에 관리)
+const defaultStyleConfig = {
+  barSize: 24,
+  tableWidthScale: 100,
+  chartWidthScale: 100,
+  tableHeaderBold: true,
+  tableHeaderBg: "#f5f5f5",
+  tableUseZebra: true,
+  zebraRowColor: "#edf2ff",      // 지브라 행 배경 (더 진하게)
+  zebraBorderColor: "#b0b7c9",   // 지브라 세로줄 색 (더 선명)
+  showCartesianGrid: true,
+  showLegend: true,
+  chartHeight: 260,
+  labelFontSize: 11,
+};
+
 function isNumericLike(value) {
   if (value === null || value === undefined) return false;
   const s = String(value).trim();
@@ -204,166 +220,6 @@ function reorderGroupNames(list, sourceName, targetName) {
   return next;
 }
 
-// ✅ Step6 전용 그래프/표 도구 모음 (floating)
-function Step6ChartToolbox({
-  barSize,
-  onChangeBarSize,
-  tableWidthScale,
-  onChangeTableWidthScale,
-  chartWidthScale,
-  onChangeChartWidthScale,
-}) {
-  const handleBarSize = (e) => {
-    const value = Number(e.target.value);
-    if (Number.isFinite(value)) onChangeBarSize(value);
-  };
-  const handleTableWidth = (e) => {
-    const value = Number(e.target.value);
-    if (Number.isFinite(value)) onChangeTableWidthScale(value);
-  };
-  const handleChartWidth = (e) => {
-    const value = Number(e.target.value);
-    if (Number.isFinite(value)) onChangeChartWidthScale(value);
-  };
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        top: "110px",
-        right: "24px",
-        zIndex: 2000,
-        width: "240px",
-        maxWidth: "80vw",
-        padding: "10px 12px",
-        borderRadius: "14px",
-        border: "1px solid #d0d7e2",
-        backgroundColor: "rgba(247, 249, 252, 0.96)",
-        boxShadow: "0 4px 14px rgba(0,0,0,0.08)",
-        fontSize: "12px",
-        backdropFilter: "blur(6px)",
-      }}
-    >
-      <div
-        style={{
-          fontWeight: 600,
-          fontSize: "13px",
-          marginBottom: "8px",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px",
-        }}
-      >
-        <span>📊 그래프 · 표 도구</span>
-      </div>
-
-      {/* 막대 너비 */}
-      <div
-        style={{
-          marginBottom: "8px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "4px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>막대 너비</span>
-          <span
-            style={{
-              padding: "2px 6px",
-              borderRadius: "999px",
-              border: "1px solid #ccc",
-              backgroundColor: "#fff",
-            }}
-          >
-            {barSize}px
-          </span>
-        </div>
-        <input type="range" min={8} max={60} value={barSize} onChange={handleBarSize} />
-      </div>
-
-      {/* 표 너비 */}
-      <div
-        style={{
-          marginBottom: "8px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "4px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>표 너비</span>
-          <span
-            style={{
-              padding: "2px 6px",
-              borderRadius: "999px",
-              border: "1px solid #ccc",
-              backgroundColor: "#fff",
-            }}
-          >
-            {tableWidthScale}%
-          </span>
-        </div>
-        <input
-          type="range"
-          min={60}
-          max={160}
-          value={tableWidthScale}
-          onChange={handleTableWidth}
-        />
-      </div>
-
-      {/* 그래프 전체 너비 */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "4px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>그래프 너비</span>
-          <span
-            style={{
-              padding: "2px 6px",
-              borderRadius: "999px",
-              border: "1px solid #ccc",
-              backgroundColor: "#fff",
-            }}
-          >
-            {chartWidthScale}%
-          </span>
-        </div>
-        <input
-          type="range"
-          min={60}
-          max={160}
-          value={chartWidthScale}
-          onChange={handleChartWidth}
-        />
-      </div>
-    </div>
-  );
-}
-
 // ✅ Legend를 무조건 "합격자 → 불합격자" 순서로 고정
 const renderPassFailLegend = () => {
   const boxStyle = (color) => ({
@@ -395,6 +251,518 @@ const renderPassFailLegend = () => {
   );
 };
 
+// ✅ Step6 전용 그래프/표 도구 모음 (설정은 로컬에서만 바뀌고, "적용" 시에만 부모에 반영)
+function Step6ChartToolbox({ config, onApply }) {
+  const [draft, setDraft] = useState(config);
+
+  useEffect(() => {
+    setDraft(config);
+  }, [config]);
+
+  const updateDraft = (patch) => {
+    setDraft((prev) => ({ ...prev, ...patch }));
+  };
+
+  const handleRangeNumber = (key, min, max) => (e) => {
+    const value = Number(e.target.value);
+    if (!Number.isFinite(value)) return;
+    const clamped = Math.min(max, Math.max(min, value));
+    updateDraft({ [key]: clamped });
+  };
+
+  const handleColor = (key) => (e) => {
+    updateDraft({ [key]: e.target.value });
+  };
+
+  const handleCheckbox = (key) => () => {
+    updateDraft((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleApply = () => {
+    onApply(draft);
+  };
+
+  const handleReset = () => {
+    setDraft(defaultStyleConfig);
+    onApply(defaultStyleConfig);
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: "110px",
+        right: "24px",
+        zIndex: 2000,
+        width: "250px",
+        maxWidth: "80vw",
+        padding: "10px 12px",
+        borderRadius: "14px",
+        border: "1px solid #d0d7e2",
+        backgroundColor: "rgba(247, 249, 252, 0.96)",
+        boxShadow: "0 4px 14px rgba(0,0,0,0.08)",
+        fontSize: "12px",
+        backdropFilter: "blur(6px)",
+      }}
+    >
+      <div
+        style={{
+          fontWeight: 600,
+          fontSize: "13px",
+          marginBottom: "8px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "6px",
+        }}
+      >
+        <span>📊 그래프 · 표 도구</span>
+        <button
+          type="button"
+          onClick={handleReset}
+          style={{
+            fontSize: "10px",
+            border: "none",
+            background: "none",
+            color: "#356ac3",
+            cursor: "pointer",
+            textDecoration: "underline",
+          }}
+        >
+          기본값
+        </button>
+      </div>
+
+      {/* 막대 너비 */}
+      <div
+        style={{
+          marginBottom: "8px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>막대 너비</span>
+          <span
+            style={{
+              padding: "2px 6px",
+              borderRadius: "999px",
+              border: "1px solid #ccc",
+              backgroundColor: "#fff",
+            }}
+          >
+            {draft.barSize}px
+          </span>
+        </div>
+        <input
+          type="range"
+          min={8}
+          max={60}
+          value={draft.barSize}
+          onChange={handleRangeNumber("barSize", 8, 60)}
+        />
+      </div>
+
+      {/* 표 너비 */}
+      <div
+        style={{
+          marginBottom: "8px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>표 너비</span>
+          <span
+            style={{
+              padding: "2px 6px",
+              borderRadius: "999px",
+              border: "1px solid #ccc",
+              backgroundColor: "#fff",
+            }}
+          >
+            {draft.tableWidthScale}%
+          </span>
+        </div>
+        <input
+          type="range"
+          min={60}
+          max={160}
+          value={draft.tableWidthScale}
+          onChange={handleRangeNumber("tableWidthScale", 60, 160)}
+        />
+      </div>
+
+      {/* 그래프 전체 너비 */}
+      <div
+        style={{
+          marginBottom: "8px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>그래프 너비</span>
+          <span
+            style={{
+              padding: "2px 6px",
+              borderRadius: "999px",
+              border: "1px solid #ccc",
+              backgroundColor: "#fff",
+            }}
+          >
+            {draft.chartWidthScale}%
+          </span>
+        </div>
+        <input
+          type="range"
+          min={60}
+          max={160}
+          value={draft.chartWidthScale}
+          onChange={handleRangeNumber("chartWidthScale", 60, 160)}
+        />
+      </div>
+
+      {/* 그래프 높이 */}
+      <div
+        style={{
+          marginBottom: "8px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>그래프 높이</span>
+          <span
+            style={{
+              padding: "2px 6px",
+              borderRadius: "999px",
+              border: "1px solid #ccc",
+              backgroundColor: "#fff",
+            }}
+          >
+            {draft.chartHeight}px
+          </span>
+        </div>
+        <input
+          type="range"
+          min={200}
+          max={360}
+          value={draft.chartHeight}
+          onChange={handleRangeNumber("chartHeight", 200, 360)}
+        />
+      </div>
+
+      {/* 값 라벨 폰트 크기 */}
+      <div
+        style={{
+          marginBottom: "8px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>값 라벨 크기</span>
+          <span
+            style={{
+              padding: "2px 6px",
+              borderRadius: "999px",
+              border: "1px solid #ccc",
+              backgroundColor: "#fff",
+            }}
+          >
+            {draft.labelFontSize}px
+          </span>
+        </div>
+        <input
+          type="range"
+          min={10}
+          max={16}
+          value={draft.labelFontSize}
+          onChange={handleRangeNumber("labelFontSize", 10, 16)}
+        />
+      </div>
+
+      {/* 표 스타일 */}
+      <div
+        style={{
+          marginTop: "8px",
+          paddingTop: "8px",
+          borderTop: "1px dashed #cbd5e1",
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+        }}
+      >
+        <div style={{ fontWeight: 600, fontSize: "12px" }}>표 스타일</div>
+
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            fontSize: "12px",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={draft.tableHeaderBold}
+            onChange={handleCheckbox("tableHeaderBold")}
+          />
+          <span>헤더 볼드 처리</span>
+        </label>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "6px",
+          }}
+        >
+          <span>헤더 배경색</span>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <input
+              type="color"
+              value={draft.tableHeaderBg}
+              onChange={handleColor("tableHeaderBg")}
+              style={{
+                width: 24,
+                height: 18,
+                padding: 0,
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+              }}
+            />
+            <span
+              style={{
+                fontFamily: "monospace",
+                fontSize: "11px",
+              }}
+            >
+              {draft.tableHeaderBg}
+            </span>
+          </div>
+        </div>
+
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            fontSize: "12px",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={draft.tableUseZebra}
+            onChange={handleCheckbox("tableUseZebra")}
+          />
+          <span>지브라 행 + 세로 줄</span>
+        </label>
+
+        {draft.tableUseZebra && (
+          <>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "6px",
+              }}
+            >
+              <span>지브라 행 색</span>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <input
+                  type="color"
+                  value={draft.zebraRowColor}
+                  onChange={handleColor("zebraRowColor")}
+                  style={{
+                    width: 24,
+                    height: 18,
+                    padding: 0,
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                  }}
+                />
+                <span
+                  style={{
+                    fontFamily: "monospace",
+                    fontSize: "11px",
+                  }}
+                >
+                  {draft.zebraRowColor}
+                </span>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "6px",
+              }}
+            >
+              <span>세로 줄 색</span>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <input
+                  type="color"
+                  value={draft.zebraBorderColor}
+                  onChange={handleColor("zebraBorderColor")}
+                  style={{
+                    width: 24,
+                    height: 18,
+                    padding: 0,
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                  }}
+                />
+                <span
+                  style={{
+                    fontFamily: "monospace",
+                    fontSize: "11px",
+                  }}
+                >
+                  {draft.zebraBorderColor}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* 그래프 옵션 */}
+      <div
+        style={{
+          marginTop: "8px",
+          paddingTop: "8px",
+          borderTop: "1px dashed #cbd5e1",
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+        }}
+      >
+        <div style={{ fontWeight: 600, fontSize: "12px" }}>그래프 옵션</div>
+
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            fontSize: "12px",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={draft.showCartesianGrid}
+            onChange={handleCheckbox("showCartesianGrid")}
+          />
+          <span>배경 격자 보이기</span>
+        </label>
+
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            fontSize: "12px",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={draft.showLegend}
+            onChange={handleCheckbox("showLegend")}
+          />
+          <span>범례(legend) 보이기</span>
+        </label>
+      </div>
+
+      {/* 적용 버튼 */}
+      <div
+        style={{
+          marginTop: "10px",
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: "6px",
+        }}
+      >
+        <button
+          type="button"
+          onClick={handleApply}
+          style={{
+            padding: "4px 10px",
+            borderRadius: "999px",
+            border: "1px solid #356ac3",
+            backgroundColor: "#356ac3",
+            color: "#fff",
+            fontSize: "11px",
+            cursor: "pointer",
+          }}
+        >
+          적용
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Step6StatsAndCharts({
   rows,
   mapping,
@@ -402,6 +770,24 @@ export default function Step6StatsAndCharts({
   supportGroups,
   resultMapping,
 }) {
+  // ✅ 스타일 설정 (실제 반영되는 값)
+  const [styleConfig, setStyleConfig] = useState(defaultStyleConfig);
+
+  const {
+    barSize,
+    tableWidthScale,
+    chartWidthScale,
+    tableHeaderBold,
+    tableHeaderBg,
+    tableUseZebra,
+    zebraRowColor,
+    zebraBorderColor,
+    showCartesianGrid,
+    showLegend,
+    chartHeight,
+    labelFontSize,
+  } = styleConfig;
+
   // 지원분야 그룹별 후보자 데이터 구성
   const groupData = useMemo(() => {
     if (!rows.length || !supportField) return {};
@@ -481,15 +867,7 @@ export default function Step6StatsAndCharts({
   const [includedFieldsByGroup, setIncludedFieldsByGroup] = useState(
     initialIncludedFields
   );
-
   const [openGroups, setOpenGroups] = useState({});
-
-  // ✅ Step6 전역 막대 너비 / 표 너비 / 그래프 너비 상태
-  const [barSize, setBarSize] = useState(24);
-  const [tableWidthScale, setTableWidthScale] = useState(100);
-  const [chartWidthScale, setChartWidthScale] = useState(100);
-
-  // ✅ 지원분야 순서 상태 (드래그앤드롭용)
   const [groupOrder, setGroupOrder] = useState([]);
   const [draggingGroup, setDraggingGroup] = useState(null);
 
@@ -511,28 +889,9 @@ export default function Step6StatsAndCharts({
     const sortedNames = [...names].sort((a, b) => a.localeCompare(b));
 
     setGroupOrder((prev) => {
-      // 처음 로딩될 때: 지원분야명 기준 오름차순
       if (!prev || !prev.length) return sortedNames;
-
-      // 드래그로 바꾼 순서는 유지하되, 새로 생긴 그룹만 알파벳 순으로 뒤에 붙이기
       const filtered = prev.filter((name) => sortedNames.includes(name));
       const missing = sortedNames.filter((name) => !filtered.includes(name));
-      return [...filtered, ...missing];
-    });
-  }, [groupData]);
-
-
-  // ✅ groupData 변경 시 기본 순서 초기화 / 유지
-  useEffect(() => {
-    const names = Object.keys(groupData);
-    if (!names.length) {
-      setGroupOrder([]);
-      return;
-    }
-    setGroupOrder((prev) => {
-      if (!prev || !prev.length) return names;
-      const filtered = prev.filter((name) => names.includes(name));
-      const missing = names.filter((name) => !filtered.includes(name));
       return [...filtered, ...missing];
     });
   }, [groupData]);
@@ -650,7 +1009,6 @@ export default function Step6StatsAndCharts({
       return;
     }
 
-    // id 기준으로 정렬 (01, 02, 03 ... 순서대로)
     sections.sort((a, b) => {
       if (a.id < b.id) return -1;
       if (a.id > b.id) return 1;
@@ -698,15 +1056,8 @@ export default function Step6StatsAndCharts({
     <div style={{ position: "relative" }}>
       <h2>6. 지원분야별 통계 · 그래프</h2>
 
-      {/* ✅ Step 6 전용 floating 도구 모음 */}
-      <Step6ChartToolbox
-        barSize={barSize}
-        onChangeBarSize={setBarSize}
-        tableWidthScale={tableWidthScale}
-        onChangeTableWidthScale={setTableWidthScale}
-        chartWidthScale={chartWidthScale}
-        onChangeChartWidthScale={setChartWidthScale}
-      />
+      {/* ✅ Step 6 전용 floating 도구 모음 (이제 '적용' 눌러야 실제 반영) */}
+      <Step6ChartToolbox config={styleConfig} onApply={setStyleConfig} />
 
       {/* 지원분야 간 요약 비교 표 (전역) */}
       <CopyableSection title="지원분야 간 요약 비교">
@@ -728,64 +1079,35 @@ export default function Step6StatsAndCharts({
           >
             <thead>
               <tr>
-                <th
-                  style={{
-                    borderBottom: "1px solid #ccc",
-                    textAlign: "left",
-                    padding: "4px 8px",
-                  }}
-                >
-                  지원분야(통합)
-                </th>
-                <th
-                  style={{
-                    borderBottom: "1px solid #ccc",
-                    textAlign: "right",
-                    padding: "4px 8px",
-                  }}
-                >
-                  통계 대상 인원
-                </th>
-                <th
-                  style={{
-                    borderBottom: "1px solid #ccc",
-                    textAlign: "right",
-                    padding: "4px 8px",
-                  }}
-                >
-                  전형 합격률(%)
-                </th>
-                <th
-                  style={{
-                    borderBottom: "1px solid #ccc",
-                    textAlign: "right",
-                    padding: "4px 8px",
-                  }}
-                >
-                  총점 평균
-                </th>
-                <th
-                  style={{
-                    borderBottom: "1px solid #ccc",
-                    textAlign: "right",
-                    padding: "4px 8px",
-                  }}
-                >
-                  전형 합격 커트라인 점수
-                </th>
-                <th
-                  style={{
-                    borderBottom: "1px solid #ccc",
-                    textAlign: "right",
-                    padding: "4px 8px",
-                  }}
-                >
-                  합격컷 상위 %
-                </th>
+                {[
+                  "지원분야(통합)",
+                  "통계 대상 인원",
+                  "전형 합격률(%)",
+                  "총점 평균",
+                  "전형 합격 커트라인 점수",
+                  "합격컷 상위 %",
+                ].map((label, idx) => (
+                  <th
+                    key={label}
+                    style={{
+                      borderBottom: `1px solid ${zebraBorderColor}`,
+                      textAlign: idx === 0 ? "left" : "right",
+                      padding: "4px 8px",
+                      fontWeight: tableHeaderBold ? 600 : 400,
+                      backgroundColor: tableHeaderBg,
+                      borderRight:
+                        tableUseZebra && idx !== 5
+                          ? `1px solid ${zebraBorderColor}`
+                          : "none",
+                    }}
+                  >
+                    {label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {orderedGroupNames.map((groupName) => {
+              {orderedGroupNames.map((groupName, rowIndex) => {
                 const row = crossGroupSummary.find(
                   (r) => r.groupName === groupName
                 );
@@ -800,13 +1122,20 @@ export default function Step6StatsAndCharts({
                     onDrop={(e) => handleDrop(e, groupName)}
                     style={{
                       cursor: "move",
-                      backgroundColor: isDragging ? "#e3f2fd" : "transparent",
+                      backgroundColor: isDragging
+                        ? "#e3f2fd"
+                        : tableUseZebra && rowIndex % 2 === 1
+                        ? zebraRowColor
+                        : "transparent",
                     }}
                   >
                     <td
                       style={{
                         borderBottom: "1px solid #eee",
                         padding: "4px 8px",
+                        borderRight: tableUseZebra
+                          ? `1px solid ${zebraBorderColor}`
+                          : "none",
                       }}
                     >
                       {row.groupName}
@@ -816,6 +1145,9 @@ export default function Step6StatsAndCharts({
                         borderBottom: "1px solid #eee",
                         textAlign: "right",
                         padding: "4px 8px",
+                        borderRight: tableUseZebra
+                          ? `1px solid ${zebraBorderColor}`
+                          : "none",
                       }}
                     >
                       {row.n}
@@ -825,6 +1157,9 @@ export default function Step6StatsAndCharts({
                         borderBottom: "1px solid #eee",
                         textAlign: "right",
                         padding: "4px 8px",
+                        borderRight: tableUseZebra
+                          ? `1px solid ${zebraBorderColor}`
+                          : "none",
                       }}
                     >
                       {row.passRate !== null
@@ -836,6 +1171,9 @@ export default function Step6StatsAndCharts({
                         borderBottom: "1px solid #eee",
                         textAlign: "right",
                         padding: "4px 8px",
+                        borderRight: tableUseZebra
+                          ? `1px solid ${zebraBorderColor}`
+                          : "none",
                       }}
                     >
                       {row.avgTotal !== null
@@ -847,6 +1185,9 @@ export default function Step6StatsAndCharts({
                         borderBottom: "1px solid #eee",
                         textAlign: "right",
                         padding: "4px 8px",
+                        borderRight: tableUseZebra
+                          ? `1px solid ${zebraBorderColor}`
+                          : "none",
                       }}
                     >
                       {row.cutoff !== null
@@ -1217,166 +1558,80 @@ export default function Step6StatsAndCharts({
                             }}
                           >
                             <tbody>
-                              <tr>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                  }}
-                                >
-                                  최고점
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {Math.max(...totalScores).toFixed(2)}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                  }}
-                                >
-                                  최저점
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {Math.min(...totalScores).toFixed(2)}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                  }}
-                                >
-                                  합격자 기준 최저점 (커트라인)
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {cutoff !== null ? cutoff.toFixed(2) : "-"}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                  }}
-                                >
-                                  불합격자 기준 최고점
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {failScores.length
+                              {[
+                                ["최고점", Math.max(...totalScores).toFixed(2)],
+                                ["최저점", Math.min(...totalScores).toFixed(2)],
+                                [
+                                  "합격자 기준 최저점 (커트라인)",
+                                  cutoff !== null
+                                    ? cutoff.toFixed(2)
+                                    : "-",
+                                ],
+                                [
+                                  "불합격자 기준 최고점",
+                                  failScores.length
                                     ? Math.max(...failScores).toFixed(2)
-                                    : "-"}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                  }}
-                                >
-                                  총점 평균
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {totalAvg !== null
+                                    : "-",
+                                ],
+                                [
+                                  "총점 평균",
+                                  totalAvg !== null
                                     ? totalAvg.toFixed(2)
-                                    : "-"}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                  }}
-                                >
-                                  총점 중앙값
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {totalMed !== null
+                                    : "-",
+                                ],
+                                [
+                                  "총점 중앙값",
+                                  totalMed !== null
                                     ? totalMed.toFixed(2)
-                                    : "-"}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                  }}
-                                >
-                                  총점 표준편차
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    borderBottom: "1px solid #eee",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {totalStd !== null
+                                    : "-",
+                                ],
+                                [
+                                  "총점 표준편차",
+                                  totalStd !== null
                                     ? totalStd.toFixed(2)
-                                    : "-"}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                  }}
-                                >
-                                  합격컷 상위 %
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "4px 8px",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {cutoffPercent !== null
+                                    : "-",
+                                ],
+                                [
+                                  "합격컷 상위 %",
+                                  cutoffPercent !== null
                                     ? cutoffPercent.toFixed(1)
-                                    : "-"}
-                                </td>
-                              </tr>
+                                    : "-",
+                                ],
+                              ].map(([label, value], idx) => (
+                                <tr
+                                  key={label}
+                                  style={{
+                                    backgroundColor:
+                                      tableUseZebra && idx % 2 === 1
+                                        ? zebraRowColor
+                                        : "transparent",
+                                  }}
+                                >
+                                  <td
+                                    style={{
+                                      padding: "4px 8px",
+                                      borderBottom: "1px solid #eee",
+                                      borderRight: tableUseZebra
+                                        ? `1px solid ${zebraBorderColor}`
+                                        : "none",
+                                    }}
+                                  >
+                                    {label}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "4px 8px",
+                                      borderBottom: "1px solid #eee",
+                                      textAlign: "right",
+                                      borderRight: tableUseZebra
+                                        ? `1px solid ${zebraBorderColor}`
+                                        : "none",
+                                    }}
+                                  >
+                                    {value}
+                                  </td>
+                                </tr>
+                              ))}
                             </tbody>
                           </table>
                         </div>
@@ -1405,19 +1660,26 @@ export default function Step6StatsAndCharts({
                         style={{
                           width: `${chartWidthScale}%`,
                           maxWidth: "100%",
-                          height: 240,
+                          height: chartHeight,
                         }}
                       >
                         <ResponsiveContainer>
                           <BarChart
                             data={phaseTotalAvgData}
-                            margin={{ top: 30, right: 20, left: 10, bottom: 10 }}
+                            margin={{
+                              top: 30,
+                              right: 20,
+                              left: 10,
+                              bottom: 10,
+                            }}
                           >
-                            <CartesianGrid strokeDasharray="3 3" />
+                            {showCartesianGrid && (
+                              <CartesianGrid strokeDasharray="3 3" />
+                            )}
                             <XAxis dataKey="phase" />
                             <YAxis />
                             <Tooltip />
-                            <Legend />
+                            {showLegend && <Legend />}
                             <Bar
                               dataKey="avg"
                               name="총점 평균"
@@ -1428,6 +1690,7 @@ export default function Step6StatsAndCharts({
                                 dataKey="avg"
                                 position="top"
                                 formatter={formatLabelValue}
+                                style={{ fontSize: labelFontSize }}
                               />
                               {phaseTotalAvgData.map((d, idx) => (
                                 <Cell
@@ -1484,51 +1747,46 @@ export default function Step6StatsAndCharts({
                         >
                           <thead>
                             <tr>
-                              <th
-                                style={{
-                                  borderBottom: "1px solid #ccc",
-                                  textAlign: "left",
-                                  padding: "4px 8px",
-                                }}
-                              >
-                                평가항목
-                              </th>
-                              <th
-                                style={{
-                                  borderBottom: "1px solid #ccc",
-                                  textAlign: "right",
-                                  padding: "4px 8px",
-                                }}
-                              >
-                                합격자 평균
-                              </th>
-                              <th
-                                style={{
-                                  borderBottom: "1px solid #ccc",
-                                  textAlign: "right",
-                                  padding: "4px 8px",
-                                }}
-                              >
-                                불합격자 평균
-                              </th>
-                              <th
-                                style={{
-                                  borderBottom: "1px solid #ccc",
-                                  textAlign: "right",
-                                  padding: "4px 8px",
-                                }}
-                              >
-                                합격 공헌도 (상관계수)
-                              </th>
+                              {["평가항목", "합격자 평균", "불합격자 평균", "합격 공헌도 (상관계수)"].map(
+                                (label, idx) => (
+                                  <th
+                                    key={label}
+                                    style={{
+                                      borderBottom: `1px solid ${zebraBorderColor}`,
+                                      textAlign: idx === 0 ? "left" : "right",
+                                      padding: "4px 8px",
+                                      fontWeight: tableHeaderBold ? 600 : 400,
+                                      backgroundColor: tableHeaderBg,
+                                      borderRight:
+                                        tableUseZebra && idx !== 3
+                                          ? `1px solid ${zebraBorderColor}`
+                                          : "none",
+                                    }}
+                                  >
+                                    {label}
+                                  </th>
+                                )
+                              )}
                             </tr>
                           </thead>
                           <tbody>
-                            {fieldStats.map((fs) => (
-                              <tr key={fs.field}>
+                            {fieldStats.map((fs, rowIndex) => (
+                              <tr
+                                key={fs.field}
+                                style={{
+                                  backgroundColor:
+                                    tableUseZebra && rowIndex % 2 === 1
+                                      ? zebraRowColor
+                                      : "transparent",
+                                }}
+                              >
                                 <td
                                   style={{
                                     borderBottom: "1px solid #eee",
                                     padding: "4px 8px",
+                                    borderRight: tableUseZebra
+                                      ? `1px solid ${zebraBorderColor}`
+                                      : "none",
                                   }}
                                 >
                                   {fs.field}
@@ -1538,6 +1796,9 @@ export default function Step6StatsAndCharts({
                                     borderBottom: "1px solid #eee",
                                     padding: "4px 8px",
                                     textAlign: "right",
+                                    borderRight: tableUseZebra
+                                      ? `1px solid ${zebraBorderColor}`
+                                      : "none",
                                   }}
                                 >
                                   {fs.passAvg !== null
@@ -1549,6 +1810,9 @@ export default function Step6StatsAndCharts({
                                     borderBottom: "1px solid #eee",
                                     padding: "4px 8px",
                                     textAlign: "right",
+                                    borderRight: tableUseZebra
+                                      ? `1px solid ${zebraBorderColor}`
+                                      : "none",
                                   }}
                                 >
                                   {fs.failAvg !== null
@@ -1576,7 +1840,7 @@ export default function Step6StatsAndCharts({
                         style={{
                           width: `${chartWidthScale}%`,
                           maxWidth: "100%",
-                          height: 280,
+                          height: chartHeight + 20,
                         }}
                       >
                         <ResponsiveContainer>
@@ -1589,12 +1853,15 @@ export default function Step6StatsAndCharts({
                               bottom: 10,
                             }}
                           >
-                            <CartesianGrid strokeDasharray="3 3" />
+                            {showCartesianGrid && (
+                              <CartesianGrid strokeDasharray="3 3" />
+                            )}
                             <XAxis dataKey="field" />
                             <YAxis />
                             <Tooltip />
-                            {/* ✅ Legend 커스텀: 합격자 → 불합격자 */}
-                            <Legend content={renderPassFailLegend} />
+                            {showLegend && (
+                              <Legend content={renderPassFailLegend} />
+                            )}
                             <Bar
                               dataKey="passAvg"
                               name="합격자"
@@ -1606,6 +1873,7 @@ export default function Step6StatsAndCharts({
                                 dataKey="passAvg"
                                 position="top"
                                 formatter={formatLabelValue}
+                                style={{ fontSize: labelFontSize }}
                               />
                             </Bar>
                             <Bar
@@ -1619,6 +1887,7 @@ export default function Step6StatsAndCharts({
                                 dataKey="failAvg"
                                 position="top"
                                 formatter={formatLabelValue}
+                                style={{ fontSize: labelFontSize }}
                               />
                             </Bar>
                           </BarChart>
@@ -1650,19 +1919,26 @@ export default function Step6StatsAndCharts({
                       style={{
                         width: `${chartWidthScale}%`,
                         maxWidth: "100%",
-                        height: 240,
+                        height: chartHeight,
                       }}
                     >
                       <ResponsiveContainer>
                         <BarChart
                           data={finalCompareData}
-                          margin={{ top: 30, right: 20, left: 10, bottom: 10 }}
+                          margin={{
+                            top: 30,
+                            right: 20,
+                            left: 10,
+                            bottom: 10,
+                          }}
                         >
-                          <CartesianGrid strokeDasharray="3 3" />
+                          {showCartesianGrid && (
+                            <CartesianGrid strokeDasharray="3 3" />
+                          )}
                           <XAxis dataKey="group" />
                           <YAxis />
                           <Tooltip />
-                          <Legend />
+                          {showLegend && <Legend />}
                           <Bar
                             dataKey="avg"
                             name="총점 평균"
@@ -1673,6 +1949,7 @@ export default function Step6StatsAndCharts({
                               dataKey="avg"
                               position="top"
                               formatter={formatLabelValue}
+                              style={{ fontSize: labelFontSize }}
                             />
                             {finalCompareData.map((d, idx) => (
                               <Cell
