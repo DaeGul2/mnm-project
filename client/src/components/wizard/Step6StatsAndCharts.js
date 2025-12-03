@@ -193,6 +193,17 @@ function correlation(xArr, yArr) {
   return c;
 }
 
+// 그룹 순서 재정렬 유틸 (드래그앤드롭용)
+function reorderGroupNames(list, sourceName, targetName) {
+  const srcIdx = list.indexOf(sourceName);
+  const tgtIdx = list.indexOf(targetName);
+  if (srcIdx === -1 || tgtIdx === -1) return list;
+  const next = [...list];
+  next.splice(srcIdx, 1);
+  next.splice(tgtIdx, 0, sourceName);
+  return next;
+}
+
 // ✅ Step6 전용 그래프/표 도구 모음 (floating)
 function Step6ChartToolbox({
   barSize,
@@ -478,6 +489,10 @@ export default function Step6StatsAndCharts({
   const [tableWidthScale, setTableWidthScale] = useState(100);
   const [chartWidthScale, setChartWidthScale] = useState(100);
 
+  // ✅ 지원분야 순서 상태 (드래그앤드롭용)
+  const [groupOrder, setGroupOrder] = useState([]);
+  const [draggingGroup, setDraggingGroup] = useState(null);
+
   const groupRefs = useRef({});
   const groupSectionRefs = useRef({}); // 각 지원분야별 섹션 참조 저장
 
@@ -485,15 +500,40 @@ export default function Step6StatsAndCharts({
     setIncludedFieldsByGroup(initialIncludedFields);
   }, [initialIncludedFields]);
 
+  // ✅ groupData 변경 시 기본 순서 초기화 / 유지 (최초에는 지원분야명 오름차순)
   useEffect(() => {
-    setOpenGroups((prev) => {
-      const next = { ...prev };
-      Object.keys(groupData).forEach((groupName) => {
-        if (typeof next[groupName] === "undefined") {
-          next[groupName] = true;
-        }
-      });
-      return next;
+    const names = Object.keys(groupData);
+    if (!names.length) {
+      setGroupOrder([]);
+      return;
+    }
+
+    const sortedNames = [...names].sort((a, b) => a.localeCompare(b));
+
+    setGroupOrder((prev) => {
+      // 처음 로딩될 때: 지원분야명 기준 오름차순
+      if (!prev || !prev.length) return sortedNames;
+
+      // 드래그로 바꾼 순서는 유지하되, 새로 생긴 그룹만 알파벳 순으로 뒤에 붙이기
+      const filtered = prev.filter((name) => sortedNames.includes(name));
+      const missing = sortedNames.filter((name) => !filtered.includes(name));
+      return [...filtered, ...missing];
+    });
+  }, [groupData]);
+
+
+  // ✅ groupData 변경 시 기본 순서 초기화 / 유지
+  useEffect(() => {
+    const names = Object.keys(groupData);
+    if (!names.length) {
+      setGroupOrder([]);
+      return;
+    }
+    setGroupOrder((prev) => {
+      if (!prev || !prev.length) return names;
+      const filtered = prev.filter((name) => names.includes(name));
+      const missing = names.filter((name) => !filtered.includes(name));
+      return [...filtered, ...missing];
     });
   }, [groupData]);
 
@@ -566,6 +606,39 @@ export default function Step6StatsAndCharts({
 
   const formatLabelValue = (value) =>
     value == null ? "" : value.toFixed(1);
+
+  // ✅ 드래그앤드롭 핸들러: 지원분야 간 요약 비교 표에서 순서 변경
+  const handleDragStart = (e, groupName) => {
+    setDraggingGroup(groupName);
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+    }
+  };
+
+  const handleDragOver = (e, groupName) => {
+    e.preventDefault();
+    if (!draggingGroup || draggingGroup === groupName) return;
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = "move";
+    }
+  };
+
+  const handleDrop = (e, targetGroupName) => {
+    e.preventDefault();
+    if (!draggingGroup || draggingGroup === targetGroupName) {
+      setDraggingGroup(null);
+      return;
+    }
+    setGroupOrder((prev) => {
+      const base = prev && prev.length ? prev : Object.keys(groupData);
+      return reorderGroupNames(base, draggingGroup, targetGroupName);
+    });
+    setDraggingGroup(null);
+  };
+
+  // ✅ 현재 화면에서 사용할 실제 순서
+  const orderedGroupNames =
+    groupOrder && groupOrder.length ? groupOrder : Object.keys(groupData);
 
   // 지원분야별 섹션 일괄 다운로드
   const handleDownloadAllSections = async (groupName) => {
@@ -712,78 +785,99 @@ export default function Step6StatsAndCharts({
               </tr>
             </thead>
             <tbody>
-              {crossGroupSummary.map((row) => (
-                <tr key={row.groupName}>
-                  <td
+              {orderedGroupNames.map((groupName) => {
+                const row = crossGroupSummary.find(
+                  (r) => r.groupName === groupName
+                );
+                if (!row) return null;
+                const isDragging = draggingGroup === groupName;
+                return (
+                  <tr
+                    key={groupName}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, groupName)}
+                    onDragOver={(e) => handleDragOver(e, groupName)}
+                    onDrop={(e) => handleDrop(e, groupName)}
                     style={{
-                      borderBottom: "1px solid #eee",
-                      padding: "4px 8px",
+                      cursor: "move",
+                      backgroundColor: isDragging ? "#e3f2fd" : "transparent",
                     }}
                   >
-                    {row.groupName}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: "1px solid #eee",
-                      textAlign: "right",
-                      padding: "4px 8px",
-                    }}
-                  >
-                    {row.n}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: "1px solid #eee",
-                      textAlign: "right",
-                      padding: "4px 8px",
-                    }}
-                  >
-                    {row.passRate !== null
-                      ? row.passRate.toFixed(1)
-                      : "-"}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: "1px solid #eee",
-                      textAlign: "right",
-                      padding: "4px 8px",
-                    }}
-                  >
-                    {row.avgTotal !== null
-                      ? row.avgTotal.toFixed(2)
-                      : "-"}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: "1px solid #eee",
-                      textAlign: "right",
-                      padding: "4px 8px",
-                    }}
-                  >
-                    {row.cutoff !== null
-                      ? row.cutoff.toFixed(2)
-                      : "-"}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: "1px solid #eee",
-                      textAlign: "right",
-                      padding: "4px 8px",
-                    }}
-                  >
-                    {row.cutoffPercent !== null
-                      ? row.cutoffPercent.toFixed(1)
-                      : "-"}
-                  </td>
-                </tr>
-              ))}
+                    <td
+                      style={{
+                        borderBottom: "1px solid #eee",
+                        padding: "4px 8px",
+                      }}
+                    >
+                      {row.groupName}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: "1px solid #eee",
+                        textAlign: "right",
+                        padding: "4px 8px",
+                      }}
+                    >
+                      {row.n}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: "1px solid #eee",
+                        textAlign: "right",
+                        padding: "4px 8px",
+                      }}
+                    >
+                      {row.passRate !== null
+                        ? row.passRate.toFixed(1)
+                        : "-"}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: "1px solid #eee",
+                        textAlign: "right",
+                        padding: "4px 8px",
+                      }}
+                    >
+                      {row.avgTotal !== null
+                        ? row.avgTotal.toFixed(2)
+                        : "-"}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: "1px solid #eee",
+                        textAlign: "right",
+                        padding: "4px 8px",
+                      }}
+                    >
+                      {row.cutoff !== null
+                        ? row.cutoff.toFixed(2)
+                        : "-"}
+                    </td>
+                    <td
+                      style={{
+                        borderBottom: "1px solid #eee",
+                        textAlign: "right",
+                        padding: "4px 8px",
+                      }}
+                    >
+                      {row.cutoffPercent !== null
+                        ? row.cutoffPercent.toFixed(1)
+                        : "-"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </CopyableSection>
 
       {/* 각 지원분야별 아코디언 */}
-      {Object.entries(groupData).map(([groupName, { candidates }]) => {
+      {orderedGroupNames.map((groupName) => {
+        const group = groupData[groupName];
+        if (!group) return null;
+        const { candidates } = group;
+
         const includedFields = includedFieldsByGroup[groupName] || [];
 
         const totalScores = candidates

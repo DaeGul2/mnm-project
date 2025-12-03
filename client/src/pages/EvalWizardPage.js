@@ -13,6 +13,7 @@ import {
   unlockProject,
   getProjectToken,
   saveProjectToken,
+  removeProjectToken,   // ✅ 이거 추가,
 } from "../services/projectService";
 import {
   listRoundsByProject,
@@ -238,7 +239,12 @@ export default function EvalWizardPage() {
       setRoundStatus(list && list.length ? "" : "등록된 전형이 없습니다.");
     } catch (err) {
       console.error("loadRounds error:", err);
-      setRoundStatus("전형 목록 조회 중 오류가 발생했습니다.");
+      // ✅ 토큰 만료 처리
+      if (err?.response?.status === 401) {
+        handleTokenExpired();
+      } else {
+        setRoundStatus("전형 목록 조회 중 오류가 발생했습니다.");
+      }
     } finally {
       setLoadingRounds(false);
     }
@@ -299,6 +305,33 @@ export default function EvalWizardPage() {
       return false;
     }
     return true;
+  };
+
+  const handleTokenExpired = () => {
+    if (!selectedProjectId) return;
+    removeProjectToken(selectedProjectId);
+    setProjectToken("");
+    setProjectPassword("");
+    setRounds([]);
+    setSelectedRoundId(null);
+    setProjectStatus(
+      "프로젝트 토큰이 만료되었습니다. 비밀번호를 다시 입력해 잠금을 해제하세요."
+    );
+    setRoundStatus("");
+  };
+
+  // ✅ 사용자가 직접 "비밀번호 다시 입력" 눌렀을 때
+  const handleForceRelock = () => {
+    if (!selectedProjectId) return;
+    removeProjectToken(selectedProjectId);
+    setProjectToken("");
+    setProjectPassword("");
+    setRounds([]);
+    setSelectedRoundId(null);
+    setProjectStatus(
+      "프로젝트 잠금을 재설정했습니다. 비밀번호를 다시 입력해 잠금을 해제하세요."
+    );
+    setRoundStatus("");
   };
 
   // 새 프로젝트 생성
@@ -378,7 +411,12 @@ export default function EvalWizardPage() {
       setRoundStatus("");
     } catch (err) {
       console.error("handleOpenRound error:", err);
-      setRoundStatus("전형 데이터를 불러오는 중 오류가 발생했습니다.");
+      // ✅ 토큰 만료 처리
+      if (err?.response?.status === 401) {
+        handleTokenExpired();
+      } else {
+        setRoundStatus("전형 데이터를 불러오는 중 오류가 발생했습니다.");
+      }
     }
   };
 
@@ -405,9 +443,15 @@ export default function EvalWizardPage() {
       setRoundStatus("전형이 삭제되었습니다.");
     } catch (err) {
       console.error("handleDeleteRound error:", err);
-      setRoundStatus("전형 삭제 중 오류가 발생했습니다.");
+      // ✅ 토큰 만료 처리
+      if (err?.response?.status === 401) {
+        handleTokenExpired();
+      } else {
+        setRoundStatus("전형 삭제 중 오류가 발생했습니다.");
+      }
     }
   };
+
 
   // 새 전형 모드 진입
   const handleStartNewRound = () => {
@@ -501,7 +545,12 @@ export default function EvalWizardPage() {
       setActiveStep((prev) => Math.min(prev + 1, steps.length - 1));
     } catch (err) {
       console.error("handleNext save error:", err);
-      setRoundStatus("단계 저장 중 오류가 발생했습니다.");
+      // ✅ 토큰 만료 처리
+      if (err?.response?.status === 401) {
+        handleTokenExpired();
+      } else {
+        setRoundStatus("단계 저장 중 오류가 발생했습니다.");
+      }
     } finally {
       setIsSaving(false);
     }
