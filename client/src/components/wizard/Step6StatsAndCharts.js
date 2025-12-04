@@ -124,7 +124,10 @@ function CopyableSection({
   onDragOver,
   onDrop,
 }) {
+  // 바깥 카드(섹션 전체 박스)용 ref
   const containerRef = useRef(null);
+  // 캡쳐 대상(그래프/표 내용 영역)용 ref
+  const contentRef = useRef(null);
 
   useEffect(() => {
     if (onRegisterSection && sectionId) {
@@ -132,7 +135,8 @@ function CopyableSection({
         id: sectionId,
         title,
         type: sectionType || "표",
-        ref: containerRef,
+        // ✅ 이제 캡쳐/다운로드에는 "내용 영역"만 사용
+        ref: contentRef,
       });
     }
   }, [onRegisterSection, sectionId, sectionType, title]);
@@ -167,10 +171,14 @@ function CopyableSection({
         <div style={{ fontWeight: 600, fontSize: "14px" }}>{title}</div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           {extraRight}
-          <CopyAsImageButton targetRef={containerRef} />
+          {/* ✅ 섹션 복사는 바깥 박스 말고 "내용 영역"만 캡쳐 */}
+          <CopyAsImageButton targetRef={contentRef} />
         </div>
       </div>
-      <div>{children}</div>
+      {/* ✅ 여기부터가 실제 캡쳐 대상 (그래프/표 자체) */}
+      <div ref={contentRef}>
+        {children}
+      </div>
     </div>
   );
 }
