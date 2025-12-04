@@ -117,6 +117,7 @@ export async function updateRoundConfig(roundId, payload, projectToken) {
       supportGroups: payload.supportGroups,
       resultMapping: payload.resultMapping,
       maxStepReached: payload.maxStepReached,
+      name: payload.name,              // ✅ 전형 이름도 옵션으로 보냄
     },
     {
       headers: {

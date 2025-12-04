@@ -14,6 +14,7 @@ import {
   getProjectToken,
   saveProjectToken,
   removeProjectToken,   // ✅ 이거 추가,
+  updateProject,          // ✅ 추가
 } from "../services/projectService";
 import {
   listRoundsByProject,
@@ -159,6 +160,9 @@ export default function EvalWizardPage() {
   const [roundMode, setRoundMode] = useState("load"); // "load" | "new"
   const [newRoundName, setNewRoundName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  // ✅ 이름 수정용 상태
+  const [editProjectName, setEditProjectName] = useState("");
+  const [editRoundName, setEditRoundName] = useState("");
 
   const steps = [
     "엑셀 업로드",
@@ -227,7 +231,7 @@ export default function EvalWizardPage() {
       setProjectStatus("프로젝트 비밀번호를 입력해 잠금을 해제하세요.");
       setRoundStatus("");
     }
-  }, [selectedProjectId]);
+  }, [selectedProjectId, projects]);
 
   // 전형 목록 로딩
   const loadRounds = async (projectId, token) => {
@@ -270,6 +274,78 @@ export default function EvalWizardPage() {
     }
     setActiveStep(1);
   };
+
+  const handleUpdateProjectName = async () => {
+    if (!ensureProjectUnlocked()) return;
+    if (!editProjectName.trim()) {
+      setProjectStatus("프로젝트 이름을 입력하세요.");
+      return;
+    }
+    try {
+      setProjectStatus("프로젝트 이름 수정 중...");
+      const updated = await updateProject(
+        selectedProjectId,
+        { name: editProjectName.trim() },
+        projectToken
+      );
+
+      // 로컬 목록 반영
+      setProjects((prev) =>
+        prev.map((p) =>
+          Number(p.id) === Number(updated.id) ? { ...p, name: updated.name } : p
+        )
+      );
+
+      setProjectStatus("프로젝트 이름이 수정되었습니다.");
+    } catch (err) {
+      console.error("handleUpdateProjectName error:", err);
+      if (err?.response?.status === 401) {
+        handleTokenExpired();
+      } else {
+        setProjectStatus("프로젝트 이름 수정 중 오류가 발생했습니다.");
+      }
+    }
+  };
+
+
+  const handleUpdateRoundName = async () => {
+    if (!ensureProjectUnlocked()) return;
+    if (!selectedRoundId) {
+      setRoundStatus("먼저 전형을 선택하세요.");
+      return;
+    }
+    if (!editRoundName.trim()) {
+      setRoundStatus("전형 이름을 입력하세요.");
+      return;
+    }
+    try {
+      setRoundStatus("전형 이름 수정 중...");
+      const updatedRound = await updateRoundConfig(
+        selectedRoundId,
+        { name: editRoundName.trim() },
+        projectToken
+      );
+
+      // 로컬 전형 목록 이름 갱신
+      setRounds((prev) =>
+        prev.map((r) =>
+          Number(r.id) === Number(updatedRound.id)
+            ? { ...r, name: updatedRound.name }
+            : r
+        )
+      );
+
+      setRoundStatus("전형 이름이 수정되었습니다.");
+    } catch (err) {
+      console.error("handleUpdateRoundName error:", err);
+      if (err?.response?.status === 401) {
+        handleTokenExpired();
+      } else {
+        setRoundStatus("전형 이름 수정 중 오류가 발생했습니다.");
+      }
+    }
+  };
+
 
   const canGoNext = () => {
     if (activeStep === 0) {
@@ -397,7 +473,7 @@ export default function EvalWizardPage() {
 
       setSelectedRoundId(round.id);
       setRoundMode("load");
-
+      setEditRoundName(roundData?.name || round.name || "");
       setHeaders(roundData?.headers_json || []);
       setRows(Array.isArray(rowData) ? rowData : []);
       setMapping(roundData?.mapping_json || defaultMapping);
@@ -492,6 +568,7 @@ export default function EvalWizardPage() {
             projectToken
           );
           setSelectedRoundId(created.id);
+          setEditRoundName(created.name || "");   // ✅ 추가
           await loadRounds(selectedProjectId, projectToken);
           setRoundStatus(`전형 "${created.name}"이 저장되었습니다.`);
           setRoundMode("load");
@@ -673,6 +750,26 @@ export default function EvalWizardPage() {
             )}
           </div>
 
+          {/* ✅ 2.5행: 프로젝트명 수정 */}
+          {selectedProjectId && projectToken && (
+            <div style={projectRowStyle}>
+              <span style={labelStyle}>프로젝트명 수정</span>
+              <input
+                type="text"
+                value={editProjectName}
+                onChange={(e) => setEditProjectName(e.target.value)}
+                style={{ ...inputStyle, minWidth: "220px" }}
+              />
+              <button
+                type="button"
+                style={smallButtonStyle}
+                onClick={handleUpdateProjectName}
+              >
+                저장
+              </button>
+            </div>
+          )}
+
           {/* 3행: 전형 모드 탭 */}
           {selectedProjectId && (
             <div
@@ -747,6 +844,31 @@ export default function EvalWizardPage() {
                   </button>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ✅ 3.5행: 전형명 수정 */}
+          {selectedProjectId && selectedRoundId && (
+            <div
+              style={{
+                ...projectRowStyle,
+                marginTop: "4px",
+              }}
+            >
+              <span style={labelStyle}>전형명 수정</span>
+              <input
+                type="text"
+                value={editRoundName}
+                onChange={(e) => setEditRoundName(e.target.value)}
+                style={{ ...inputStyle, minWidth: "220px" }}
+              />
+              <button
+                type="button"
+                style={smallButtonStyle}
+                onClick={handleUpdateRoundName}
+              >
+                저장
+              </button>
             </div>
           )}
 
@@ -927,5 +1049,6 @@ export default function EvalWizardPage() {
         </div>
       </div>
     </div>
+
   );
 }

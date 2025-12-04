@@ -156,6 +156,7 @@ exports.createRoundForProject = async (req, res) => {
  * 전형 설정(JSON) 업데이트
  * PUT /api/rounds/:id/config
  */
+// server/controllers/evalRoundController.js
 exports.updateRoundConfig = async (req, res) => {
   try {
     const { id } = req.params;
@@ -164,6 +165,7 @@ exports.updateRoundConfig = async (req, res) => {
       supportGroups,
       resultMapping,
       maxStepReached,
+      name,                 // ✅ 전형 이름
     } = req.body;
 
     const round = await EvalRound.findByPk(id);
@@ -198,6 +200,11 @@ exports.updateRoundConfig = async (req, res) => {
       round.max_step_reached = Math.max(prev, maxStepReached);
     }
 
+    // ✅ 전형 이름 변경
+    if (typeof name === "string" && name.trim()) {
+      round.name = name.trim();
+    }
+
     await round.save();
 
     return res.json({
@@ -210,6 +217,7 @@ exports.updateRoundConfig = async (req, res) => {
       .json({ message: "전형 설정 업데이트 중 오류가 발생했습니다." });
   }
 };
+
 
 /**
  * 전형 삭제 (해당 전형 + 관련 행 전체 삭제)
