@@ -12,6 +12,9 @@ import {
   Cell,
   LabelList,
 } from "recharts";
+import { downloadStep6FullReportZip } from "../../utils/step6ReportDownloadUtils";
+import LoadingSpinner from "../common/LoadingSpinner";
+
 
 const COLORS = {
   primary: "#1976d2",   // 합격: 파란색
@@ -33,6 +36,7 @@ const defaultStyleConfig = {
   showLegend: true,
   chartHeight: 260,
   labelFontSize: 11,
+  tableNumericAlign: "right",
 };
 
 function isNumericLike(value) {
@@ -275,7 +279,7 @@ function Step6ChartToolbox({ config, onApply }) {
   };
 
   const handleCheckbox = (key) => () => {
-    updateDraft((prev) => ({ ...prev, [key]: !prev[key] }));
+    setDraft((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const handleApply = () => {
@@ -550,6 +554,52 @@ function Step6ChartToolbox({ config, onApply }) {
         <div
           style={{
             display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+          }}
+        >
+          <span>숫자 열 정렬</span>
+          <div
+            style={{
+              display: "flex",
+              gap: "4px",
+              marginTop: "2px",
+            }}
+          >
+            {["left", "center", "right"].map((align) => (
+              <button
+                key={align}
+                type="button"
+                onClick={() => updateDraft({ tableNumericAlign: align })}
+                style={{
+                  flex: 1,
+                  padding: "2px 4px",
+                  fontSize: "11px",
+                  borderRadius: "999px",
+                  border:
+                    draft.tableNumericAlign === align
+                      ? "1px solid #356ac3"
+                      : "1px solid #ccc",
+                  backgroundColor:
+                    draft.tableNumericAlign === align
+                      ? "#e3f2fd"
+                      : "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                {align === "left"
+                  ? "좌"
+                  : align === "center"
+                    ? "가운데"
+                    : "우"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             gap: "6px",
@@ -769,10 +819,12 @@ export default function Step6StatsAndCharts({
   supportField,
   supportGroups,
   resultMapping,
+  projectName,
+  stageName,
 }) {
   // ✅ 스타일 설정 (실제 반영되는 값)
   const [styleConfig, setStyleConfig] = useState(defaultStyleConfig);
-
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const {
     barSize,
     tableWidthScale,
@@ -786,6 +838,7 @@ export default function Step6StatsAndCharts({
     showLegend,
     chartHeight,
     labelFontSize,
+    tableNumericAlign,
   } = styleConfig;
 
   // 지원분야 그룹별 후보자 데이터 구성
@@ -873,6 +926,7 @@ export default function Step6StatsAndCharts({
 
   const groupRefs = useRef({});
   const groupSectionRefs = useRef({}); // 각 지원분야별 섹션 참조 저장
+  const globalSectionRefs = useRef({}); // 개요/전역 섹션 참조 저장
 
   useEffect(() => {
     setIncludedFieldsByGroup(initialIncludedFields);
@@ -1052,15 +1106,100 @@ export default function Step6StatsAndCharts({
     }
   };
 
+  const registerOverviewSection = (info) => {
+    if (!info || !info.id) return;
+    globalSectionRefs.current[info.id] = info;
+  };
+
+  const handleDownloadWholeReport = async () => {
+    const overviewSectionsMap = globalSectionRefs.current || {};
+    const overviewSections = Object.values(overviewSectionsMap).sort((a, b) => {
+      if (a.id < b.id) return -1;
+      if (a.id > b.id) return 1;
+      return 0;
+    });
+
+    const groupEntries = Object.entries(groupSectionRefs.current || {});
+    const groupSections = groupEntries.map(([groupName, sectionMap]) => {
+      const sections = Object.values(sectionMap || {}).sort((a, b) => {
+        if (a.id < b.id) return -1;
+        if (a.id > b.id) return 1;
+        return 0;
+      });
+      return {
+        groupName,
+        sections,
+      };
+    });
+
+    const hasAnySection =
+      overviewSections.length > 0 ||
+      groupSections.some((g) => g.sections.length > 0);
+
+    if (!hasAnySection) {
+      alert("일괄 다운로드할 섹션을 찾을 수 없습니다.");
+      return;
+    }
+
+    try {
+      setIsDownloadingAll(true);
+
+      await downloadStep6FullReportZip({
+        overviewSections,
+        groupSections,
+        projectName,
+        stageName,
+      });
+    } catch (err) {
+      console.error(err);
+      alert("일괄 다운로드 중 오류가 발생했습니다.");
+    } finally {
+      setIsDownloadingAll(false);
+    }
+  };
+
+
   return (
     <div style={{ position: "relative" }}>
       <h2>6. 지원분야별 통계 · 그래프</h2>
+      {isDownloadingAll && (
+        <LoadingSpinner message="전체 레포트 일괄 다운로드 준비 중..." />
+      )}
+      <div
+        style={{
+          marginBottom: "8px",
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: "8px",
+        }}
+      >
+        <button
+          type="button"
+          onClick={handleDownloadWholeReport}
+          style={{
+            padding: "6px 12px",
+            borderRadius: "999px",
+            border: "1px solid #1976d2",
+            backgroundColor: "#1976d2",
+            color: "#fff",
+            fontSize: "12px",
+            cursor: "pointer",
+          }}
+        >
+          ⬇ 레포트 전체 일괄 다운로드
+        </button>
+      </div>
 
       {/* ✅ Step 6 전용 floating 도구 모음 (이제 '적용' 눌러야 실제 반영) */}
       <Step6ChartToolbox config={styleConfig} onApply={setStyleConfig} />
 
       {/* 지원분야 간 요약 비교 표 (전역) */}
-      <CopyableSection title="지원분야 간 요약 비교">
+      <CopyableSection
+        title="지원분야 간 요약 비교"
+        onRegisterSection={registerOverviewSection}
+        sectionId="00_crossGroupSummary"
+        sectionType="표"
+      >
         <div
           style={{
             width: `${tableWidthScale}%`,
@@ -1091,7 +1230,7 @@ export default function Step6StatsAndCharts({
                     key={label}
                     style={{
                       borderBottom: `1px solid ${zebraBorderColor}`,
-                      textAlign: idx === 0 ? "left" : "right",
+                      textAlign: idx === 0 ? "left" : tableNumericAlign,
                       padding: "4px 8px",
                       fontWeight: tableHeaderBold ? 600 : 400,
                       backgroundColor: tableHeaderBg,
@@ -1125,8 +1264,8 @@ export default function Step6StatsAndCharts({
                       backgroundColor: isDragging
                         ? "#e3f2fd"
                         : tableUseZebra && rowIndex % 2 === 1
-                        ? zebraRowColor
-                        : "transparent",
+                          ? zebraRowColor
+                          : "transparent",
                     }}
                   >
                     <td
@@ -1143,7 +1282,7 @@ export default function Step6StatsAndCharts({
                     <td
                       style={{
                         borderBottom: "1px solid #eee",
-                        textAlign: "right",
+                        textAlign: tableNumericAlign,
                         padding: "4px 8px",
                         borderRight: tableUseZebra
                           ? `1px solid ${zebraBorderColor}`
@@ -1155,7 +1294,7 @@ export default function Step6StatsAndCharts({
                     <td
                       style={{
                         borderBottom: "1px solid #eee",
-                        textAlign: "right",
+                        textAlign: tableNumericAlign,
                         padding: "4px 8px",
                         borderRight: tableUseZebra
                           ? `1px solid ${zebraBorderColor}`
@@ -1169,7 +1308,7 @@ export default function Step6StatsAndCharts({
                     <td
                       style={{
                         borderBottom: "1px solid #eee",
-                        textAlign: "right",
+                        textAlign: tableNumericAlign,
                         padding: "4px 8px",
                         borderRight: tableUseZebra
                           ? `1px solid ${zebraBorderColor}`
@@ -1183,7 +1322,7 @@ export default function Step6StatsAndCharts({
                     <td
                       style={{
                         borderBottom: "1px solid #eee",
-                        textAlign: "right",
+                        textAlign: tableNumericAlign,
                         padding: "4px 8px",
                         borderRight: tableUseZebra
                           ? `1px solid ${zebraBorderColor}`
@@ -1197,7 +1336,7 @@ export default function Step6StatsAndCharts({
                     <td
                       style={{
                         borderBottom: "1px solid #eee",
-                        textAlign: "right",
+                        textAlign: tableNumericAlign,
                         padding: "4px 8px",
                       }}
                     >
@@ -1622,7 +1761,7 @@ export default function Step6StatsAndCharts({
                                     style={{
                                       padding: "4px 8px",
                                       borderBottom: "1px solid #eee",
-                                      textAlign: "right",
+                                      textAlign: tableNumericAlign,
                                       borderRight: tableUseZebra
                                         ? `1px solid ${zebraBorderColor}`
                                         : "none",
@@ -1753,7 +1892,7 @@ export default function Step6StatsAndCharts({
                                     key={label}
                                     style={{
                                       borderBottom: `1px solid ${zebraBorderColor}`,
-                                      textAlign: idx === 0 ? "left" : "right",
+                                      textAlign: idx === 0 ? "left" : tableNumericAlign,
                                       padding: "4px 8px",
                                       fontWeight: tableHeaderBold ? 600 : 400,
                                       backgroundColor: tableHeaderBg,
@@ -1795,7 +1934,7 @@ export default function Step6StatsAndCharts({
                                   style={{
                                     borderBottom: "1px solid #eee",
                                     padding: "4px 8px",
-                                    textAlign: "right",
+                                    textAlign: tableNumericAlign,
                                     borderRight: tableUseZebra
                                       ? `1px solid ${zebraBorderColor}`
                                       : "none",
@@ -1809,7 +1948,7 @@ export default function Step6StatsAndCharts({
                                   style={{
                                     borderBottom: "1px solid #eee",
                                     padding: "4px 8px",
-                                    textAlign: "right",
+                                    textAlign: tableNumericAlign,
                                     borderRight: tableUseZebra
                                       ? `1px solid ${zebraBorderColor}`
                                       : "none",
@@ -1823,7 +1962,7 @@ export default function Step6StatsAndCharts({
                                   style={{
                                     borderBottom: "1px solid #eee",
                                     padding: "4px 8px",
-                                    textAlign: "right",
+                                    textAlign: tableNumericAlign,
                                   }}
                                 >
                                   {fs.corr !== null
