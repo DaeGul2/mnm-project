@@ -119,6 +119,10 @@ function CopyableSection({
   onRegisterSection,
   sectionId,
   sectionType, // "표" 또는 "그래프"
+  draggable,
+  onDragStart,
+  onDragOver,
+  onDrop,
 }) {
   const containerRef = useRef(null);
 
@@ -135,12 +139,21 @@ function CopyableSection({
 
   return (
     <div
+      ref={containerRef}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
       style={{
         border: "1px solid #e0e0e0",
         borderRadius: "10px",
         padding: "10px 12px",
         marginBottom: "16px",
         backgroundColor: "#fafafa",
+        resize: "horizontal",
+        overflow: "auto",
+        minWidth: 400,
+        maxWidth: "100%",
       }}
     >
       <div
@@ -157,10 +170,11 @@ function CopyableSection({
           <CopyAsImageButton targetRef={containerRef} />
         </div>
       </div>
-      <div ref={containerRef}>{children}</div>
+      <div>{children}</div>
     </div>
   );
 }
+
 
 // 간단한 통계 계산 유틸
 function mean(arr) {
