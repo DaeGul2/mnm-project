@@ -512,7 +512,7 @@ function Step6ChartToolbox({ config, onApply }) {
             style={{
               padding: "2px 6px",
               borderRadius: "999px",
-              border: "1px solid #ccc",
+              border: "1px solid#ccc",
               backgroundColor: "#fff",
             }}
           >
@@ -549,7 +549,7 @@ function Step6ChartToolbox({ config, onApply }) {
             style={{
               padding: "2px 6px",
               borderRadius: "999px",
-              border: "1px solid #ccc",
+              border: "1px solid#ccc",
               backgroundColor: "#fff",
             }}
           >
@@ -586,7 +586,7 @@ function Step6ChartToolbox({ config, onApply }) {
             style={{
               padding: "2px 6px",
               borderRadius: "999px",
-              border: "1px solid #ccc",
+              border: "1px solid#ccc",
               backgroundColor: "#fff",
             }}
           >
@@ -1100,6 +1100,112 @@ export default function Step6StatsAndCharts({
     return rowsForSummary;
   }, [groupData]);
 
+  // ✅ ReportEditor에서 그래프/표 다시 그릴 수 있도록, 그룹별 통계 스냅샷 저장용
+  const perGroupStats = useMemo(() => {
+    const result = {};
+
+    Object.entries(groupData).forEach(([groupName, { candidates }]) => {
+      if (!candidates || !candidates.length) return;
+
+      const includedFields = includedFieldsByGroup[groupName] || [];
+
+      const totalScores = candidates
+        .map((c) => c.totalScore)
+        .filter((v) => v !== null && v !== undefined);
+
+      const passCandidates = candidates.filter((c) => c.phaseRole === "합격");
+      const failCandidates = candidates.filter((c) => c.phaseRole === "불합격");
+
+      const passScores = passCandidates
+        .map((c) => c.totalScore)
+        .filter((v) => v !== null && v !== undefined);
+      const failScores = failCandidates
+        .map((c) => c.totalScore)
+        .filter((v) => v !== null && v !== undefined);
+
+      const phaseTotalAvgData = [
+        {
+          phase: "합격",
+          avg: passScores.length ? mean(passScores) : null,
+        },
+        {
+          phase: "불합격",
+          avg: failScores.length ? mean(failScores) : null,
+        },
+      ].filter((d) => d.avg !== null);
+
+      const fieldStats = includedFields.map((field) => {
+        const passFieldScores = passCandidates
+          .map((c) => c.evalScores[field])
+          .filter((v) => v !== null && v !== undefined);
+
+        const failFieldScores = failCandidates
+          .map((c) => c.evalScores[field])
+          .filter((v) => v !== null && v !== undefined);
+
+        const corrX = [];
+        const corrY = [];
+        candidates.forEach((c) => {
+          const v = c.evalScores[field];
+          if (v === null || v === undefined || !isNumericLike(v)) return;
+          if (c.phaseRole === "합격") {
+            corrX.push(Number(v));
+            corrY.push(1);
+          } else if (c.phaseRole === "불합격") {
+            corrX.push(Number(v));
+            corrY.push(0);
+          }
+        });
+
+        const corrVal =
+          corrX.length >= 2 && corrY.length === corrX.length
+            ? correlation(corrX, corrY)
+            : null;
+
+        return {
+          field,
+          passAvg: passFieldScores.length ? mean(passFieldScores) : null,
+          failAvg: failFieldScores.length ? mean(failFieldScores) : null,
+          corr: corrVal,
+        };
+      });
+
+      const finalPass = candidates.filter((c) => c.finalRole === "합격");
+      const finalFailPhasePass = candidates.filter(
+        (c) => c.finalRole === "불합격" && c.phaseRole === "합격"
+      );
+
+      const finalPassScores = finalPass
+        .map((c) => c.totalScore)
+        .filter((v) => v !== null && v !== undefined);
+      const finalFailPhasePassScores = finalFailPhasePass
+        .map((c) => c.totalScore)
+        .filter((v) => v !== null && v !== undefined);
+
+      const finalCompareData = [];
+      if (finalPassScores.length) {
+        finalCompareData.push({
+          group: "최종 합격",
+          avg: mean(finalPassScores),
+        });
+      }
+      if (finalFailPhasePassScores.length) {
+        finalCompareData.push({
+          group: "최종 불합격(전형 합격)",
+          avg: mean(finalFailPhasePassScores),
+        });
+      }
+
+      result[groupName] = {
+        phaseTotalAvgData,
+        fieldStats,
+        finalCompareData,
+      };
+    });
+
+    return result;
+  }, [groupData, includedFieldsByGroup]);
+
   const handleToggleField = (groupName, field) => () => {
     setIncludedFieldsByGroup((prev) => {
       const curr = prev[groupName] || [];
@@ -1264,6 +1370,7 @@ export default function Step6StatsAndCharts({
     },
     stats: {
       crossGroupSummary,
+      perGroup: perGroupStats,
     },
   });
 
@@ -1763,7 +1870,7 @@ export default function Step6StatsAndCharts({
             <div
               style={{
                 padding: "10px 14px",
-                borderBottom: "1px solid #eee",
+                borderBottom: "1px solid#eee",
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
