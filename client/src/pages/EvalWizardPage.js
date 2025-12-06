@@ -13,8 +13,8 @@ import {
   unlockProject,
   getProjectToken,
   saveProjectToken,
-  removeProjectToken,   // ✅ 이거 추가,
-  updateProject,          // ✅ 추가
+  removeProjectToken, // ✅ 추가
+  updateProject, // ✅ 추가
 } from "../services/projectService";
 import {
   listRoundsByProject,
@@ -243,7 +243,6 @@ export default function EvalWizardPage() {
       setRoundStatus(list && list.length ? "" : "등록된 전형이 없습니다.");
     } catch (err) {
       console.error("loadRounds error:", err);
-      // ✅ 토큰 만료 처리
       if (err?.response?.status === 401) {
         handleTokenExpired();
       } else {
@@ -289,7 +288,6 @@ export default function EvalWizardPage() {
         projectToken
       );
 
-      // 로컬 목록 반영
       setProjects((prev) =>
         prev.map((p) =>
           Number(p.id) === Number(updated.id) ? { ...p, name: updated.name } : p
@@ -306,7 +304,6 @@ export default function EvalWizardPage() {
       }
     }
   };
-
 
   const handleUpdateRoundName = async () => {
     if (!ensureProjectUnlocked()) return;
@@ -326,7 +323,6 @@ export default function EvalWizardPage() {
         projectToken
       );
 
-      // 로컬 전형 목록 이름 갱신
       setRounds((prev) =>
         prev.map((r) =>
           Number(r.id) === Number(updatedRound.id)
@@ -345,7 +341,6 @@ export default function EvalWizardPage() {
       }
     }
   };
-
 
   const canGoNext = () => {
     if (activeStep === 0) {
@@ -396,7 +391,6 @@ export default function EvalWizardPage() {
     setRoundStatus("");
   };
 
-  // ✅ 사용자가 직접 "비밀번호 다시 입력" 눌렀을 때
   const handleForceRelock = () => {
     if (!selectedProjectId) return;
     removeProjectToken(selectedProjectId);
@@ -410,7 +404,6 @@ export default function EvalWizardPage() {
     setRoundStatus("");
   };
 
-  // 새 프로젝트 생성
   const handleCreateProject = async () => {
     if (!newProjectName || !newProjectPassword) {
       setProjectStatus("프로젝트 이름과 비밀번호는 필수입니다.");
@@ -438,7 +431,6 @@ export default function EvalWizardPage() {
     }
   };
 
-  // 프로젝트 잠금 해제
   const handleUnlockProject = async () => {
     if (!selectedProjectId || !projectPassword) {
       setProjectStatus("프로젝트와 비밀번호를 모두 입력하세요.");
@@ -458,7 +450,6 @@ export default function EvalWizardPage() {
     }
   };
 
-  // 전형 열기 (불러오기)
   const handleOpenRound = async (round) => {
     if (!projectToken) {
       setRoundStatus("먼저 프로젝트 잠금을 해제하세요.");
@@ -487,7 +478,6 @@ export default function EvalWizardPage() {
       setRoundStatus("");
     } catch (err) {
       console.error("handleOpenRound error:", err);
-      // ✅ 토큰 만료 처리
       if (err?.response?.status === 401) {
         handleTokenExpired();
       } else {
@@ -496,7 +486,6 @@ export default function EvalWizardPage() {
     }
   };
 
-  // 전형 삭제
   const handleDeleteRound = async (round) => {
     if (!projectToken) {
       setRoundStatus("먼저 프로젝트 잠금을 해제하세요.");
@@ -519,7 +508,6 @@ export default function EvalWizardPage() {
       setRoundStatus("전형이 삭제되었습니다.");
     } catch (err) {
       console.error("handleDeleteRound error:", err);
-      // ✅ 토큰 만료 처리
       if (err?.response?.status === 401) {
         handleTokenExpired();
       } else {
@@ -528,8 +516,6 @@ export default function EvalWizardPage() {
     }
   };
 
-
-  // 새 전형 모드 진입
   const handleStartNewRound = () => {
     if (!ensureProjectUnlocked()) return;
     if (!newRoundName.trim()) {
@@ -542,19 +528,16 @@ export default function EvalWizardPage() {
     setRoundStatus(`새 전형 "${newRoundName}" 작성 중 (Step1부터 시작).`);
   };
 
-  // Step 이동 시 서버에 저장
   const handleNext = async () => {
     if (!canGoNext() || isSaving) return;
 
     try {
       setIsSaving(true);
 
-      // Step2 끝날 때: 새 전형이면 생성 / 기존 전형이면 엑셀+설정 갈아끼우기
       if (activeStep === 1) {
         if (!ensureProjectUnlocked()) return;
 
         if (!selectedRoundId && roundMode === "new") {
-          // 새 전형 최초 저장
           const created = await createRound(
             selectedProjectId,
             {
@@ -568,12 +551,11 @@ export default function EvalWizardPage() {
             projectToken
           );
           setSelectedRoundId(created.id);
-          setEditRoundName(created.name || "");   // ✅ 추가
+          setEditRoundName(created.name || "");
           await loadRounds(selectedProjectId, projectToken);
           setRoundStatus(`전형 "${created.name}"이 저장되었습니다.`);
           setRoundMode("load");
         } else if (selectedRoundId) {
-          // 기존 전형: 엑셀/행 전체 갈아끼우기 + 매핑 갱신
           await replaceRoundData(
             selectedRoundId,
             {
@@ -590,7 +572,6 @@ export default function EvalWizardPage() {
         }
       }
 
-      // Step3 끝날 때: supportGroups 저장
       if (activeStep === 2 && selectedRoundId) {
         if (!ensureProjectUnlocked()) return;
         await updateRoundConfig(
@@ -604,7 +585,6 @@ export default function EvalWizardPage() {
         );
       }
 
-      // Step5 끝날 때: resultMapping 저장
       if (activeStep === 4 && selectedRoundId) {
         if (!ensureProjectUnlocked()) return;
         await updateRoundConfig(
@@ -622,7 +602,6 @@ export default function EvalWizardPage() {
       setActiveStep((prev) => Math.min(prev + 1, steps.length - 1));
     } catch (err) {
       console.error("handleNext save error:", err);
-      // ✅ 토큰 만료 처리
       if (err?.response?.status === 401) {
         handleTokenExpired();
       } else {
@@ -632,6 +611,14 @@ export default function EvalWizardPage() {
       setIsSaving(false);
     }
   };
+
+  const selectedProjectName =
+    projects.find((p) => String(p.id) === String(selectedProjectId))?.name ||
+    "";
+  const selectedRoundName =
+    editRoundName ||
+    rounds.find((r) => Number(r.id) === Number(selectedRoundId))?.name ||
+    "";
 
   return (
     <div
@@ -678,7 +665,6 @@ export default function EvalWizardPage() {
             </button>
           </div>
 
-          {/* 새 프로젝트 입력 영역 */}
           {isCreatingProject && (
             <div
               style={{
@@ -750,7 +736,7 @@ export default function EvalWizardPage() {
             )}
           </div>
 
-          {/* ✅ 2.5행: 프로젝트명 수정 */}
+          {/* 2.5행: 프로젝트명 수정 */}
           {selectedProjectId && projectToken && (
             <div style={projectRowStyle}>
               <span style={labelStyle}>프로젝트명 수정</span>
@@ -847,7 +833,7 @@ export default function EvalWizardPage() {
             </div>
           )}
 
-          {/* ✅ 3.5행: 전형명 수정 */}
+          {/* 3.5행: 전형명 수정 */}
           {selectedProjectId && selectedRoundId && (
             <div
               style={{
@@ -934,7 +920,6 @@ export default function EvalWizardPage() {
             </div>
           )}
 
-          {/* 상태 메시지 */}
           {(projectStatus || roundStatus) && (
             <div style={{ marginTop: "4px", fontSize: "11px", color: "#555" }}>
               {projectStatus && <div>• {projectStatus}</div>}
@@ -1001,6 +986,10 @@ export default function EvalWizardPage() {
               supportField={mapping.supportField}
               supportGroups={supportGroups}
               resultMapping={resultMapping}
+              projectName={selectedProjectName}
+              stageName={selectedRoundName}
+              roundId={selectedRoundId}
+              projectToken={projectToken}
             />
           )}
         </div>
@@ -1049,6 +1038,5 @@ export default function EvalWizardPage() {
         </div>
       </div>
     </div>
-
   );
 }

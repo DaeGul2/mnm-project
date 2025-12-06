@@ -28,7 +28,7 @@ sequelize
   .then(async () => {
     console.log("✅ DB 연결 성공");
     // 개발 단계에서만
-    // await db.sequelize.sync(); // { alter: true } 옵션은 상황 봐서
+    // await db.sequelize.sync({ alter: true }); // { alter: true } 옵션은 상황 봐서
     console.log("✅ DB sync 완료");
     app.listen(PORT, () => {
       console.log(`🚀 Server listening on port ${PORT}`);

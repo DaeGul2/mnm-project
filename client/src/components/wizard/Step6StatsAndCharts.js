@@ -14,7 +14,11 @@ import {
 } from "recharts";
 import { downloadStep6FullReportZip } from "../../utils/step6ReportDownloadUtils";
 import LoadingSpinner from "../common/LoadingSpinner";
-
+// ✅ Step6 계산 결과 저장/조회 서비스
+import {
+  getRoundCalc,
+  saveRoundCalc,
+} from "../../services/evalRoundService";
 
 const COLORS = {
   primary: "#1976d2",   // 합격: 파란색
@@ -38,6 +42,60 @@ const defaultStyleConfig = {
   labelFontSize: 11,
   tableNumericAlign: "right",
 };
+
+// ✅ html2canvas로 만든 캔버스에서 실제 내용만 남기고 투명 여백 제거
+function cropCanvasToContent(canvas) {
+  const ctx = canvas.getContext("2d");
+  const { width, height } = canvas;
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+
+  let top = null;
+  let left = null;
+  let right = null;
+  let bottom = null;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const idx = (y * width + x) * 4;
+      const alpha = data[idx + 3]; // A 채널
+      if (alpha !== 0) {
+        if (top === null || y < top) top = y;
+        if (bottom === null || y > bottom) bottom = y;
+        if (left === null || x < left) left = x;
+        if (right === null || x > right) right = x;
+      }
+    }
+  }
+
+  // 전부 투명하면(진짜 내용 없으면) 그냥 원본 리턴
+  if (top === null) {
+    return canvas;
+  }
+
+  const croppedWidth = right - left + 1;
+  const croppedHeight = bottom - top + 1;
+
+  const cropped = document.createElement("canvas");
+  cropped.width = croppedWidth;
+  cropped.height = croppedHeight;
+  const cctx = cropped.getContext("2d");
+
+  cctx.drawImage(
+    canvas,
+    left,
+    top,
+    croppedWidth,
+    croppedHeight,
+    0,
+    0,
+    croppedWidth,
+    croppedHeight
+  );
+
+  return cropped;
+}
+
 
 function isNumericLike(value) {
   if (value === null || value === undefined) return false;
@@ -843,10 +901,19 @@ export default function Step6StatsAndCharts({
   resultMapping,
   projectName,
   stageName,
+  roundId,
+  projectToken,
 }) {
   // ✅ 스타일 설정 (실제 반영되는 값)
   const [styleConfig, setStyleConfig] = useState(defaultStyleConfig);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+
+  // ✅ Step6 계산 저장/불러오기 상태
+  const [isSavingCalc, setIsSavingCalc] = useState(false);
+  const [isLoadingCalc, setIsLoadingCalc] = useState(false);
+  const [calcStatus, setCalcStatus] = useState("");
+  const [hasLoadedCalc, setHasLoadedCalc] = useState(false);
+
   const {
     barSize,
     tableWidthScale,
@@ -954,6 +1021,12 @@ export default function Step6StatsAndCharts({
     setIncludedFieldsByGroup(initialIncludedFields);
   }, [initialIncludedFields]);
 
+  // ✅ roundId가 바뀌면 저장된 calc 다시 로딩할 수 있도록 플래그 리셋
+  useEffect(() => {
+    setHasLoadedCalc(false);
+    setCalcStatus("");
+  }, [roundId]);
+
   // ✅ groupData 변경 시 기본 순서 초기화 / 유지 (최초에는 지원분야명 오름차순)
   useEffect(() => {
     const names = Object.keys(groupData);
@@ -973,7 +1046,7 @@ export default function Step6StatsAndCharts({
   }, [groupData]);
 
   const crossGroupSummary = useMemo(() => {
-    const rows = [];
+    const rowsForSummary = [];
 
     Object.entries(groupData).forEach(([groupName, { candidates }]) => {
       const totalScores = candidates
@@ -982,7 +1055,7 @@ export default function Step6StatsAndCharts({
 
       const n = candidates.length;
       if (!n) {
-        rows.push({
+        rowsForSummary.push({
           groupName,
           n: 0,
           passRate: null,
@@ -1014,7 +1087,7 @@ export default function Step6StatsAndCharts({
 
       const passRate = n > 0 ? (phasePass.length / n) * 100 : null;
 
-      rows.push({
+      rowsForSummary.push({
         groupName,
         n,
         passRate,
@@ -1024,7 +1097,7 @@ export default function Step6StatsAndCharts({
       });
     });
 
-    return rows;
+    return rowsForSummary;
   }, [groupData]);
 
   const handleToggleField = (groupName, field) => () => {
@@ -1097,8 +1170,9 @@ export default function Step6StatsAndCharts({
 
       try {
         const canvas = await html2canvas(node, { scale: 2 });
+        const cropped = cropCanvasToContent(canvas);
         const blob = await new Promise((resolve) =>
-          canvas.toBlob(resolve, "image/png")
+          cropped.toBlob(resolve, "image/png")
         );
         if (!blob) continue;
 
@@ -1180,6 +1254,120 @@ export default function Step6StatsAndCharts({
     }
   };
 
+  // ✅ Step6 계산 결과 저장용 payload 생성 (계산 로직은 그대로, 스냅샷만 보냄)
+  const buildCalcPayload = () => ({
+    config: {
+      styleConfig,
+      includedFieldsByGroup,
+      groupOrder,
+      openGroups,
+    },
+    stats: {
+      crossGroupSummary,
+    },
+  });
+
+  // ✅ Step6 계산 결과 저장
+  const handleSaveCalc = async () => {
+    if (!roundId || !projectToken) {
+      alert("전형 또는 프로젝트 토큰 정보가 없어 저장할 수 없습니다.");
+      return;
+    }
+    try {
+      setIsSavingCalc(true);
+      setCalcStatus("");
+
+      const payload = buildCalcPayload();
+
+      const res = await saveRoundCalc(
+        roundId,
+        {
+          name: `${stageName || "전형"} Step6 분석`,
+          config: payload.config,
+          stats: payload.stats,
+        },
+        projectToken
+      );
+
+      setCalcStatus(res?.message || "Step6 계산 결과를 저장했습니다.");
+    } catch (err) {
+      console.error("saveRoundCalc error:", err);
+      setCalcStatus("Step6 계산 결과 저장 중 오류가 발생했습니다.");
+      alert("Step6 계산 결과 저장 중 오류가 발생했습니다.");
+    } finally {
+      setIsSavingCalc(false);
+    }
+  };
+
+  // ✅ Step6 계산 결과 불러오기 (있으면 config 반영)
+  useEffect(() => {
+    const shouldLoad =
+      roundId &&
+      projectToken &&
+      !hasLoadedCalc &&
+      rows &&
+      rows.length > 0 &&
+      supportField &&
+      supportGroups &&
+      Object.keys(supportGroups).length > 0;
+
+    if (!shouldLoad) return;
+
+    const load = async () => {
+      try {
+        setIsLoadingCalc(true);
+        setCalcStatus("");
+
+        const data = await getRoundCalc(roundId, projectToken);
+        if (!data || !data.calc) {
+          setHasLoadedCalc(true);
+          return;
+        }
+
+        const { config } = data.calc || {};
+        if (config && typeof config === "object") {
+          if (config.styleConfig) {
+            setStyleConfig((prev) => ({
+              ...prev,
+              ...config.styleConfig,
+            }));
+          }
+          if (config.includedFieldsByGroup) {
+            setIncludedFieldsByGroup(config.includedFieldsByGroup);
+          }
+          if (config.groupOrder) {
+            setGroupOrder(config.groupOrder);
+          }
+          if (config.openGroups) {
+            setOpenGroups(config.openGroups);
+          }
+        }
+
+        setCalcStatus("이 전형의 저장된 Step6 설정을 불러왔습니다.");
+      } catch (err) {
+        // 404면 "저장 없음"이니 조용히 패스
+        const status = err?.response?.status;
+        if (status === 404) {
+          setCalcStatus("저장된 Step6 계산 결과가 없어 현재 데이터로 새로 계산 중입니다.");
+        } else {
+          console.error("getRoundCalc error:", err);
+          setCalcStatus("Step6 계산 결과 불러오는 중 오류가 발생했습니다.");
+        }
+      } finally {
+        setIsLoadingCalc(false);
+        setHasLoadedCalc(true);
+      }
+    };
+
+    load();
+  }, [
+    roundId,
+    projectToken,
+    hasLoadedCalc,
+    rows,
+    supportField,
+    supportGroups,
+  ]);
 
   return (
     <div style={{ position: "relative" }}>
@@ -1191,25 +1379,62 @@ export default function Step6StatsAndCharts({
         style={{
           marginBottom: "8px",
           display: "flex",
-          justifyContent: "flex-end",
+          justifyContent: "space-between",
           gap: "8px",
+          alignItems: "center",
+          flexWrap: "wrap",
         }}
       >
-        <button
-          type="button"
-          onClick={handleDownloadWholeReport}
+        <div style={{ fontSize: "11px", color: "#666", minHeight: "16px" }}>
+          {isLoadingCalc
+            ? "저장된 Step6 계산 결과를 불러오는 중입니다..."
+            : calcStatus}
+        </div>
+        <div
           style={{
-            padding: "6px 12px",
-            borderRadius: "999px",
-            border: "1px solid #1976d2",
-            backgroundColor: "#1976d2",
-            color: "#fff",
-            fontSize: "12px",
-            cursor: "pointer",
+            display: "flex",
+            gap: "8px",
           }}
         >
-          ⬇ 레포트 전체 일괄 다운로드
-        </button>
+          <button
+            type="button"
+            onClick={handleSaveCalc}
+            disabled={!roundId || !projectToken || isSavingCalc}
+            style={{
+              padding: "6px 12px",
+              borderRadius: "999px",
+              border: "1px solid #555",
+              backgroundColor: isSavingCalc ? "#eee" : "#fff",
+              color: "#333",
+              fontSize: "12px",
+              cursor:
+                !roundId || !projectToken || isSavingCalc
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                !roundId || !projectToken || isSavingCalc
+                  ? 0.6
+                  : 1,
+            }}
+          >
+            💾 Step6 계산 저장
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadWholeReport}
+            style={{
+              padding: "6px 12px",
+              borderRadius: "999px",
+              border: "1px solid #1976d2",
+              backgroundColor: "#1976d2",
+              color: "#fff",
+              fontSize: "12px",
+              cursor: "pointer",
+            }}
+          >
+            ⬇ 레포트 전체 일괄 다운로드
+          </button>
+        </div>
       </div>
 
       {/* ✅ Step 6 전용 floating 도구 모음 (이제 '적용' 눌러야 실제 반영) */}
