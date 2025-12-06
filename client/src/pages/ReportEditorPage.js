@@ -1,11 +1,16 @@
 // src/pages/ReportEditorPage.js
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useParams, useNavigate } from "react-router-dom";
-import { getRoundCalc } from "../services/evalRoundService";
+import {
+  getRoundCalc,
+  listRoundReports,
+  createRoundReport,
+  updateRoundReport,
+} from "../services/evalRoundService";
 import ReportPreviewModal from "../components/report/ReportPreviewModal";
 
 // HWP 같은 페이지 느낌을 위한 기본 A4 비율
-const BASE_PAGE_WIDTH = 794;  // px
+const BASE_PAGE_WIDTH = 794; // px
 const BASE_PAGE_HEIGHT = 1123; // px
 
 function createPage(id) {
@@ -23,28 +28,33 @@ export default function ReportEditorPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const {
-    projectId,
-    projectName,
-    round,
-    projectToken,
-  } = location.state || {};
+  const { projectId, projectName, round, projectToken } = location.state || {};
 
+  // Step6 계산 결과
   const [loadingCalc, setLoadingCalc] = useState(false);
   const [calcError, setCalcError] = useState("");
   const [calc, setCalc] = useState(null);
 
+  // 에디터 상태
   const [pageScale, setPageScale] = useState(100); // %
   const [pageMargin, setPageMargin] = useState(48); // px
   const [pages, setPages] = useState([createPage(`page-${pageIdSeq++}`)]);
 
+  // 리포트 저장/로드 관련
+  const [loadingDraft, setLoadingDraft] = useState(false);
+  const [draftError, setDraftError] = useState("");
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [currentReportId, setCurrentReportId] = useState(null); // editor 전용 EvalRoundReport.id
+
+  // 미리보기
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
-  // 기본 방어: state 없이 직접 URL 접근한 경우
+  // 기본 방어: 직접 URL 치고 들어왔는데 state 없음
   useEffect(() => {
     if (!projectToken || !projectId) {
       setCalcError(
-        "프로젝트 토큰 정보가 없습니다. 보고서 만들기 페이지에서 다시 진입해 주세요."
+        "프로젝트 토큰 정보가 없습니다. 보고서 만들기 화면에서 다시 진입해 주세요."
       );
     }
   }, [projectToken, projectId]);
@@ -76,7 +86,7 @@ export default function ReportEditorPage() {
           );
         } else if (status === 401) {
           setCalcError(
-            "프로젝트 토큰이 만료되었습니다. 보고서 만들기 페이지에서 다시 잠금을 해제해 주세요."
+            "프로젝트 토큰이 만료되었습니다. 보고서 만들기 화면에서 다시 잠금을 해제해 주세요."
           );
         } else {
           setCalcError("Step6 계산 결과를 불러오는 중 오류가 발생했습니다.");
@@ -89,7 +99,68 @@ export default function ReportEditorPage() {
     load();
   }, [roundId, projectToken, loadingCalc, calc, calcError]);
 
-  // Step6 통계에서 지원분야 이름 리스트 추출 (현재 crossGroupSummary만 있음)
+  // 기존 "에디터용" 리포트 불러오기 (schema_version === "editor-v1")
+  useEffect(() => {
+    if (!roundId || !projectToken) return;
+
+    const loadDraft = async () => {
+      try {
+        setLoadingDraft(true);
+        setDraftError("");
+
+        const data = await listRoundReports(roundId, projectToken);
+        const reports = data?.reports || [];
+
+        // createdAt DESC라 앞에 있을수록 최신
+        const editorReports = reports.filter(
+          (r) => r.schema_version === "editor-v1"
+        );
+
+        if (editorReports.length === 0) return;
+
+        const latest = editorReports[0];
+
+        const report = latest.report || {};
+        const {
+          pages: savedPages,
+          pageScale: savedScale,
+          pageMargin: savedMargin,
+          baseWidth,
+          baseHeight,
+        } = report;
+
+        if (Array.isArray(savedPages) && savedPages.length > 0) {
+          setPages(savedPages);
+        }
+        if (typeof savedScale === "number") setPageScale(savedScale);
+        if (typeof savedMargin === "number") setPageMargin(savedMargin);
+        // baseWidth/baseHeight는 지금 상수와 사실상 동일할 거라 별도 처리 X
+
+        setCurrentReportId(latest.id);
+        setLastSavedAt(
+          latest.generated_at || latest.updated_at || new Date().toISOString()
+        );
+      } catch (err) {
+        console.error("loadDraft error:", err);
+        const status = err?.response?.status;
+        if (status === 401) {
+          setDraftError(
+            "프로젝트 토큰이 만료되었습니다. 보고서 만들기 화면에서 다시 잠금을 해제해 주세요."
+          );
+        } else {
+          setDraftError(
+            "기존 보고서 초안을 불러오는 중 오류가 발생했습니다."
+          );
+        }
+      } finally {
+        setLoadingDraft(false);
+      }
+    };
+
+    loadDraft();
+  }, [roundId, projectToken]);
+
+  // Step6 통계에서 지원분야 이름 리스트 추출 (crossGroupSummary 기준)
   const groupNames = useMemo(() => {
     const rows = calc?.stats?.crossGroupSummary || [];
     return rows.map((r) => r.groupName).filter(Boolean);
@@ -97,7 +168,6 @@ export default function ReportEditorPage() {
 
   // 좌측 재료 패널에서 사용할 "섹션 카탈로그"
   const paletteItems = useMemo(() => {
-    // 아직 calc가 비어 있어도 라벨 구조는 미리 보여줘도 무방
     const overview = [
       {
         id: "overview-cross-summary",
@@ -264,11 +334,73 @@ export default function ReportEditorPage() {
   };
 
   const handleBackToList = () => {
+    // 너가 바꿔둔 경로 반영
     navigate("/reports");
   };
 
   const headerTitle =
     round?.name || (roundId ? `전형 #${roundId}` : "전형");
+
+  const handleSaveDraft = async () => {
+    if (!roundId || !projectToken) return;
+
+    try {
+      setSavingDraft(true);
+      setDraftError("");
+
+      const payload = {
+        name:
+          headerTitle && typeof headerTitle === "string"
+            ? headerTitle
+            : "보고서 에디터 초안",
+        report: {
+          pages,
+          pageScale,
+          pageMargin,
+          baseWidth: BASE_PAGE_WIDTH,
+          baseHeight: BASE_PAGE_HEIGHT,
+        },
+        schema_version: "editor-v1",
+      };
+
+      let res;
+      if (currentReportId) {
+        // 기존 editor-v1 리포트 전체 갈아끼우기
+        res = await updateRoundReport(
+          roundId,
+          currentReportId,
+          payload,
+          projectToken
+        );
+      } else {
+        // 최초 저장: 새 리포트 생성
+        res = await createRoundReport(roundId, payload, projectToken);
+        const created = res?.report;
+        if (created?.id) {
+          setCurrentReportId(created.id);
+        }
+      }
+
+      const savedReport = res?.report;
+      setLastSavedAt(
+        savedReport?.generated_at ||
+          savedReport?.updated_at ||
+          new Date().toISOString()
+      );
+    } catch (err) {
+      console.error("handleSaveDraft error:", err);
+      const status = err?.response?.status;
+      if (status === 401) {
+        setDraftError(
+          "프로젝트 토큰이 만료되었습니다. 보고서 만들기 화면에서 다시 잠금을 해제해 주세요."
+        );
+      } else {
+        setDraftError("보고서 초안을 저장하는 중 오류가 발생했습니다.");
+      }
+    } finally {
+      setSavingDraft(false);
+    }
+  };
 
   return (
     <div
@@ -330,6 +462,27 @@ export default function ReportEditorPage() {
           </div>
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          {lastSavedAt && (
+            <span style={{ fontSize: "11px", color: "#6b7280" }}>
+              마지막 저장: {new Date(lastSavedAt).toLocaleString()}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleSaveDraft}
+            disabled={savingDraft}
+            style={{
+              padding: "6px 10px",
+              borderRadius: "999px",
+              border: "1px solid #4b5563",
+              backgroundColor: savingDraft ? "#e5e7eb" : "#fff",
+              color: "#111827",
+              fontSize: "12px",
+              cursor: savingDraft ? "default" : "pointer",
+            }}
+          >
+            {savingDraft ? "저장 중..." : "💾 저장"}
+          </button>
           <button
             type="button"
             onClick={() => setIsPreviewOpen(true)}
@@ -345,19 +498,28 @@ export default function ReportEditorPage() {
           >
             🔍 미리보기
           </button>
-          {/* 나중에 "저장" 버튼 추가 예정 */}
         </div>
       </div>
 
       {/* 에러/로딩 상태 */}
-      <div style={{ fontSize: "12px", minHeight: "18px", marginBottom: "4px" }}>
+      <div
+        style={{ fontSize: "12px", minHeight: "18px", marginBottom: "4px" }}
+      >
         {loadingCalc && (
-          <span style={{ color: "#6b7280" }}>
+          <span style={{ color: "#6b7280", marginRight: 8 }}>
             Step6 계산 결과를 불러오는 중입니다...
           </span>
         )}
+        {loadingDraft && (
+          <span style={{ color: "#6b7280", marginRight: 8 }}>
+            기존 보고서 초안을 불러오는 중입니다...
+          </span>
+        )}
         {!loadingCalc && calcError && (
-          <span style={{ color: "#b91c1c" }}>{calcError}</span>
+          <span style={{ color: "#b91c1c", marginRight: 8 }}>{calcError}</span>
+        )}
+        {!loadingDraft && draftError && (
+          <span style={{ color: "#b91c1c" }}>{draftError}</span>
         )}
       </div>
 

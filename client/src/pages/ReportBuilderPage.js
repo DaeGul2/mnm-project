@@ -7,8 +7,11 @@ import {
   saveProjectToken,
   removeProjectToken,
 } from "../services/projectService";
-import { listRoundsByProject } from "../services/evalRoundService";
-import { useNavigate } from "react-router-dom"; // ⬅️ 추가
+import {
+  listRoundsByProject,
+  listRoundReports,
+} from "../services/evalRoundService";
+import { useNavigate } from "react-router-dom";
 
 const pageContainerStyle = {
   maxWidth: "1200px",
@@ -23,7 +26,7 @@ const sectionTitleStyle = {
 };
 
 const projectCardStyle = {
-  border: "1px solid #d0d7e2",
+  border: "1px solid ",
   borderRadius: "12px",
   marginBottom: "12px",
   backgroundColor: "#f9fafc",
@@ -107,7 +110,11 @@ export default function ReportBuilderPage() {
   const [roundsByProject, setRoundsByProject] = useState({});
   const [loadingRoundsProjectId, setLoadingRoundsProjectId] = useState(null);
 
-  const navigate = useNavigate(); // ⬅️ 추가
+  // 전형별 리포트 메타 (에디터 초안 여부 + 최근 작성 시각)
+  // { [roundId]: { hasEditorDraft: boolean, lastEditedAt: string | null } }
+  const [roundReportMeta, setRoundReportMeta] = useState({});
+
+  const navigate = useNavigate();
 
   // 프로젝트 목록 로딩
   const loadProjects = async () => {
@@ -160,6 +167,7 @@ export default function ReportBuilderPage() {
     }));
   };
 
+  // 특정 프로젝트의 전형 목록 + 각 전형의 에디터 리포트 메타 조회
   const loadRoundsForProject = async (
     projectId,
     token,
@@ -172,15 +180,60 @@ export default function ReportBuilderPage() {
         setProjectStatus(projectId, "전형 목록 불러오는 중...");
       }
       const list = await listRoundsByProject(projectId, token);
+      const safeRounds = list || [];
+
       setRoundsByProject((prev) => ({
         ...prev,
-        [projectId]: list || [],
+        [projectId]: safeRounds,
       }));
+
       if (!silent) {
         setProjectStatus(
           projectId,
-          list && list.length ? "" : "등록된 전형이 없습니다."
+          safeRounds.length ? "" : "등록된 전형이 없습니다."
         );
+      }
+
+      // 각 전형에 대해 editor-v1 리포트 여부/최근 작성시각 조회
+      const metaUpdates = {};
+      for (const round of safeRounds) {
+        try {
+          const res = await listRoundReports(round.id, token);
+          const reports = res?.reports || [];
+          // createdAt DESC 정렬되어 있으므로 앞쪽이 최신
+          const editorReports = reports.filter(
+            (r) => r.schema_version === "editor-v1"
+          );
+          if (editorReports.length > 0) {
+            const latest = editorReports[0];
+            const tsISO =
+              latest.generated_at ||
+              latest.updated_at ||
+              latest.created_at ||
+              null;
+            metaUpdates[round.id] = {
+              hasEditorDraft: true,
+              lastEditedAt: tsISO,
+            };
+          } else {
+            metaUpdates[round.id] = {
+              hasEditorDraft: false,
+              lastEditedAt: null,
+            };
+          }
+        } catch (err) {
+          console.error(
+            "loadRoundsForProject > listRoundReports error:",
+            err
+          );
+          // 실패 시 해당 전형 메타는 건드리지 않음
+        }
+      }
+      if (Object.keys(metaUpdates).length > 0) {
+        setRoundReportMeta((prev) => ({
+          ...prev,
+          ...metaUpdates,
+        }));
       }
     } catch (err) {
       console.error("loadRoundsForProject error:", err);
@@ -258,6 +311,17 @@ export default function ReportBuilderPage() {
 
   const toggleAccordion = (projectId) => {
     setOpenProjectId((prev) => (prev === projectId ? null : projectId));
+  };
+
+  // 한국시간 포맷터
+  const formatKoreanDateTime = (isoString) => {
+    if (!isoString) return "";
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
+    } catch {
+      return isoString;
+    }
   };
 
   return (
@@ -602,7 +666,7 @@ export default function ReportBuilderPage() {
                                   textAlign: "center",
                                   padding: "6px 8px",
                                   borderBottom: "1px solid #e5e7eb",
-                                  width: "120px",
+                                  width: "160px",
                                 }}
                               >
                                 보고서 액션
@@ -610,80 +674,119 @@ export default function ReportBuilderPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {rounds.map((round) => (
-                              <tr key={round.id}>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderBottom: "1px solid #f3f4f6",
-                                  }}
-                                >
-                                  {round.name || `전형 #${round.id}`}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderBottom: "1px solid #f3f4f6",
-                                    textAlign: "center",
-                                  }}
-                                >
-                                  <span style={tagStyle("meta")}>
-                                    {round.status || "미정"}
-                                  </span>
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderBottom: "1px solid #f3f4f6",
-                                    textAlign: "center",
-                                  }}
-                                >
-                                  {round.max_step_reached != null
-                                    ? `${round.max_step_reached}단계`
-                                    : "-"}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderBottom: "1px solid #f3f4f6",
-                                    textAlign: "center",
-                                  }}
-                                >
-                                  <button
-                                    type="button"
+                            {rounds.map((round) => {
+                              const meta = roundReportMeta[round.id] || {};
+                              const hasDraft = !!meta.hasEditorDraft;
+                              const lastEditedAt = meta.lastEditedAt;
+                              const buttonLabel = hasDraft
+                                ? "이어서 만들기"
+                                : "보고서 만들기";
+
+                              return (
+                                <tr key={round.id}>
+                                  <td
                                     style={{
-                                      ...smallButtonStyle,
-                                      borderColor: "#2563eb",
-                                      color: "#2563eb",
-                                      backgroundColor: "#eff6ff",
-                                    }}
-                                    onClick={() => {
-                                      if (!token) {
-                                        // 이론상 여기까지 올 일은 없지만 방어 코딩
-                                        // eslint-disable-next-line no-alert
-                                        alert(
-                                          "프로젝트 토큰이 없습니다. 다시 잠금 해제 후 시도해 주세요."
-                                        );
-                                        return;
-                                      }
-                                      navigate(
-                                        `/report-editor/${round.id}`,
-                                        {
-                                          state: {
-                                            projectId: project.id,
-                                            projectName: project.name,
-                                            round,
-                                            projectToken: token,
-                                          },
-                                        }
-                                      );
+                                      padding: "6px 8px",
+                                      borderBottom: "1px solid #f3f4f6",
                                     }}
                                   >
-                                    보고서 만들기
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
+                                    {round.name || `전형 #${round.id}`}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderBottom: "1px solid #f3f4f6",
+                                      textAlign: "center",
+                                    }}
+                                  >
+                                    <span style={tagStyle("meta")}>
+                                      {round.status || "미정"}
+                                    </span>
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderBottom: "1px solid #f3f4f6",
+                                      textAlign: "center",
+                                    }}
+                                  >
+                                    {round.max_step_reached != null
+                                      ? `${round.max_step_reached}단계`
+                                      : "-"}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderBottom: "1px solid #f3f4f6",
+                                      textAlign: "center",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        alignItems: "center",
+                                        gap: "4px",
+                                      }}
+                                    >
+                                      <button
+                                        type="button"
+                                        style={{
+                                          ...smallButtonStyle,
+                                          borderColor: "#2563eb",
+                                          color: "#2563eb",
+                                          backgroundColor: "#eff6ff",
+                                        }}
+                                        onClick={() => {
+                                          if (!token) {
+                                            alert(
+                                              "프로젝트 토큰이 없습니다. 다시 잠금 해제 후 시도해 주세요."
+                                            );
+                                            return;
+                                          }
+                                          navigate(
+                                            `/report-editor/${round.id}`,
+                                            {
+                                              state: {
+                                                projectId: project.id,
+                                                projectName: project.name,
+                                                round,
+                                                projectToken: token,
+                                              },
+                                            }
+                                          );
+                                        }}
+                                      >
+                                        {buttonLabel}
+                                      </button>
+                                      {hasDraft && lastEditedAt && (
+                                        <div
+                                          style={{
+                                            fontSize: "11px",
+                                            color: "#6b7280",
+                                          }}
+                                        >
+                                          최근 작성:{" "}
+                                          {formatKoreanDateTime(
+                                            lastEditedAt
+                                          )}
+                                        </div>
+                                      )}
+                                      {!hasDraft && (
+                                        <div
+                                          style={{
+                                            fontSize: "11px",
+                                            color: "#9ca3af",
+                                          }}
+                                        >
+                                          작성 중인 보고서 없음
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
