@@ -8,97 +8,69 @@ import {
   updateRoundReport,
 } from "../services/evalRoundService";
 import ReportPreviewModal from "../components/report/ReportPreviewModal";
+import OverallSummarySection from "../components/materials/OverallSummarySection";
+import OverallSummaryConfigModal from "../components/materials/OverallSummaryConfigModal"; 
+// 💡 GroupSection 관련 컴포넌트 추가
+import GroupSection from "../components/materials/GroupSection"; 
+import GroupConfigModal from "../components/materials/GroupConfigModal"; 
 
 // Draft.js
 import { Editor, EditorState, ContentState } from "draft-js";
 import "draft-js/dist/Draft.css";
 
-// Recharts (Step6 그래프 복원용)
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  LabelList,
-  Cell,
-} from "recharts";
-
 const BASE_PAGE_WIDTH = 794;
 const BASE_PAGE_HEIGHT = 1123;
 
-const COLORS = {
-  primary: "#1976d2",
-  secondary: "#8b1a3d",
-};
-
-function formatLabelValue(value) {
-  if (value == null) return "";
-  return value.toFixed(1);
-}
-
 let pageIdSeq = 1;
-let shapeIdSeq = 1;
 
 /**
- * 페이지 하나당 사용하는 텍스트 에디터
+ * 페이지 하나당 사용하는 텍스트 에디터 (Block 용도)
  * - content: plain text
- * - blur 시 onChangeContent로 역전달
- * - 페이지 아무 데나 클릭해도 커서 찍히도록 wrapper에서 focus 처리
  */
-function PageTextEditor({ content, onChangeContent }) {
-  const [editorState, setEditorState] = useState(() =>
-    EditorState.createWithContent(ContentState.createFromText(content || ""))
-  );
-  const editorRef = useRef(null);
+function PageTextEditor({ page, onChange }) {
+  const [editorState, setEditorState] = useState(() => {
+    const content = ContentState.createFromText(page.text || "");
+    return EditorState.createWithContent(content);
+  });
+
+  const didMountRef = useRef(false);
 
   useEffect(() => {
-    // content prop이 변경될 때만 editorState를 재설정 (Draft.js 최적화)
-    const currentText = editorState.getCurrentContent().getPlainText("\n");
-    if (currentText !== content) {
-      setEditorState(
-        EditorState.createWithContent(ContentState.createFromText(content || ""))
-      );
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [content]);
+    // 외부에서 page.text가 변경되었을 때 에디터 상태를 업데이트
+    const content = ContentState.createFromText(page.text || "");
+    setEditorState(EditorState.createWithContent(content));
+  }, [page.text]);
 
-  const handleChange = (state) => {
-    setEditorState(state);
-  };
-
-  const handleBlur = () => {
-    const plain = editorState.getCurrentContent().getPlainText("\n");
-    onChangeContent(plain);
-  };
-
-  const handleWrapperClick = () => {
-    if (editorRef.current && typeof editorRef.current.focus === "function") {
-      editorRef.current.focus();
-    }
+  const handleChange = (nextEditorState) => {
+    setEditorState(nextEditorState);
+    const text = nextEditorState.getCurrentContent().getPlainText("\n");
+    onChange(text);
   };
 
   return (
     <div
       style={{
-        // minHeight: "100%", // Draft.js는 높이가 유동적이므로, 내부 컨테이너의 높이/패딩 조정이 필요
+        width: "100%",
         height: "100%",
-        cursor: "text",
-        // 기존 padding: "4px 6px" 제거하고, 페이지의 여백 안에 텍스트가 들어가도록 설정
+        // 페이지 마진은 부모 컨테이너에서 처리하므로 여기서 패딩 제거
+        padding: "0", 
+        boxSizing: "border-box",
+        fontSize: "12px",
+        lineHeight: 1.6,
+        fontFamily:
+          '"Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Helvetica Neue", Arial, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif',
       }}
-      onClick={handleWrapperClick}
-      onBlur={handleBlur}
     >
-      {/* Draft.js 에디터는 기본적으로 높이 제한이 없으며, Page Editor의 overflow: auto를 통해 스크롤됨 */}
-      <Editor ref={editorRef} editorState={editorState} onChange={handleChange} />
+      <Editor editorState={editorState} onChange={handleChange} />
     </div>
   );
 }
 
-export default function ReportEditorPage() {
+function ReportEditorPage() {
   const { roundId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -110,7 +82,7 @@ export default function ReportEditorPage() {
   const [loadingCalc, setLoadingCalc] = useState(false);
   const [calcError, setCalcError] = useState("");
 
-  // 에디터 상태: 페이지 = 텍스트 + 떠다니는 도형(shapes)
+  // 에디터 상태: 페이지 = 블록 배열
   const [pageScale, setPageScale] = useState(100);
   const [pageMargin, setPageMargin] = useState(48);
   const [pages, setPages] = useState(() => {
@@ -118,8 +90,10 @@ export default function ReportEditorPage() {
     return [
       {
         id: firstPageId,
-        text: "",
-        shapes: [], // {id, meta, x, y, width, height}
+        blocks: [
+          // 기본 텍스트 블록
+          { id: `block-${pageIdSeq++}`, type: 'text', text: '' },
+        ],
       },
     ];
   });
@@ -127,17 +101,25 @@ export default function ReportEditorPage() {
   // 리포트 저장/로드
   const [loadingDraft, setLoadingDraft] = useState(false);
   const [draftError, setDraftError] = useState("");
-  const [savingDraft, setSavingDraft] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState(null);
   const [currentReportId, setCurrentReportId] = useState(null);
+
+  // 자동 저장 관련
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const autoSaveTimerRef = useRef(null);
 
   // 미리보기
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
-  // 그래프/표 드래그 & 리사이즈 상태
-  const [dragState, setDragState] = useState(null); // {pageId, shapeId, offsetXRatio, offsetYRatio}
-  const [resizeState, setResizeState] = useState(null); // {pageId, shapeId, startX, startY, startWidth, startHeight}
-  const pageRefs = useRef({});
+  // 좌측 팔레트 호버 상태 (JSON 말풍선)
+  const [hoveredPaletteId, setHoveredPaletteId] = useState(null);
+
+  // 섹션 설정 모달 관련 상태
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  // 편집 중인 블록의 위치 { pageId, blockId }
+  const [editingBlockLocation, setEditingBlockLocation] = useState(null); 
+  // 모달에 넘길 현재 설정 객체 (blockType 필드를 추가하여 어떤 모달을 띄울지 구분)
+  const [configToEdit, setConfigToEdit] = useState({}); 
 
   // 기본 방어
   useEffect(() => {
@@ -156,93 +138,17 @@ export default function ReportEditorPage() {
       try {
         setLoadingCalc(true);
         const data = await getRoundCalc(roundId, projectToken);
-        if (!data || !data.calc) {
-          setCalcError(
-            "이 전형에 저장된 Step6 계산 결과가 없습니다. 먼저 그래프 만들기 6단계에서 계산을 저장해 주세요."
-          );
-          return;
-        }
-        setCalc(data.calc);
+        setCalc(data.calc || null);
+        setCalcError("");
       } catch (err) {
-        console.error("ReportEditorPage getRoundCalc error:", err);
-        const status = err?.response?.status;
-        if (status === 404) {
-          setCalcError(
-            "이 전형에 저장된 Step6 계산 결과가 없습니다. 먼저 그래프 만들기 6단계에서 계산을 저장해 주세요."
-          );
-        } else if (status === 401) {
-          setCalcError(
-            "프로젝트 토큰이 만료되었습니다. 보고서 만들기 화면에서 다시 잠금을 해제해 주세요."
-          );
-        } else {
-          setCalcError("Step6 계산 결과를 불러오는 중 오류가 발생했습니다.");
-        }
+        console.error("getRoundCalc error:", err);
+        setCalcError("Step6 계산 결과를 불러오지 못했습니다.");
       } finally {
         setLoadingCalc(false);
       }
     };
 
     load();
-  }, [roundId, projectToken]);
-
-  // 기존 editor-v1 리포트 불러오기 (새 구조만 로드)
-  useEffect(() => {
-    if (!roundId || !projectToken) return;
-
-    const loadDraft = async () => {
-      try {
-        setLoadingDraft(true);
-        setDraftError("");
-
-        const data = await listRoundReports(roundId, projectToken);
-        const reports = data?.reports || [];
-        const editorReports = reports.filter(
-          (r) => r.schema_version === "editor-v1"
-        );
-        if (editorReports.length === 0) return;
-
-        const latest = editorReports[0];
-        const report = latest.report || {};
-        const {
-          pages: savedPages,
-          pageScale: savedScale,
-          pageMargin: savedMargin,
-        } = report;
-
-        if (
-          Array.isArray(savedPages) &&
-          savedPages.length > 0 &&
-          savedPages[0] &&
-          Object.prototype.hasOwnProperty.call(savedPages[0], "text")
-        ) {
-          setPages(savedPages);
-        }
-
-        if (typeof savedScale === "number") setPageScale(savedScale);
-        if (typeof savedMargin === "number") setPageMargin(savedMargin);
-
-        setCurrentReportId(latest.id);
-        setLastSavedAt(
-          latest.generated_at || latest.updated_at || new Date().toISOString()
-        );
-      } catch (err) {
-        console.error("loadDraft error:", err);
-        const status = err?.response?.status;
-        if (status === 401) {
-          setDraftError(
-            "프로젝트 토큰이 만료되었습니다. 보고서 만들기 화면에서 다시 잠금을 해제해 주세요."
-          );
-        } else {
-          setDraftError(
-            "기존 보고서 초안을 불러오는 중 오류가 발생했습니다."
-          );
-        }
-      } finally {
-        setLoadingDraft(false);
-      }
-    };
-
-    loadDraft();
   }, [roundId, projectToken]);
 
   // Step6 통계에서 지원분야 이름
@@ -256,8 +162,9 @@ export default function ReportEditorPage() {
     [crossGroupSummary]
   );
 
-  // 좌측 팔레트
+  // 좌측 팔레트 (Step6 분석 재료 목록)
   const paletteItems = useMemo(() => {
+    // ... (paletteItems 정의는 변경 없음)
     const overview = [
       {
         id: "overview-cross-summary",
@@ -272,18 +179,18 @@ export default function ReportEditorPage() {
       { key: "summary", label: "요약 통계 (총점 기준)", sectionType: "표" },
       {
         key: "phase-total-avg",
-        label: "전형 결과별 합/불 총점 평균 (그래프)",
-        sectionType: "그래프",
+        label: "전형 결과별 합/불 총점 평균",
+        sectionType: "데이터",
       },
       {
         key: "field-stats",
         label: "평가항목별 합/불 평균 및 합격 공헌도",
-        sectionType: "표+그래프",
+        sectionType: "데이터",
       },
       {
         key: "final-compare",
-        label: "채용 결과별 총점 비교 (그래프)",
-        sectionType: "그래프",
+        label: "채용 결과별 총점 비교",
+        sectionType: "데이터",
       },
     ];
 
@@ -301,6 +208,187 @@ export default function ReportEditorPage() {
 
     return { overview, groups };
   }, [groupNames]);
+  
+  // 블록 데이터 업데이트 (텍스트 블록/섹션 config 등)
+  const handleUpdateBlockData = (pageId, blockId, newData) => {
+    setPages((prev) =>
+        prev.map((p) =>
+            p.id === pageId
+                ? {
+                      ...p,
+                      blocks: p.blocks.map((b) =>
+                          b.id === blockId ? { ...b, ...newData } : b
+                      ),
+                  }
+                : p
+        )
+    );
+  };
+  
+  // 텍스트 블록 내용 변경 핸들러
+  const handleChangePageText = (pageId, blockId, newText) => {
+    handleUpdateBlockData(pageId, blockId, { text: newText });
+  };
+  
+  // 블록 제거 핸들러
+  const handleRemoveBlock = (pageId, blockId) => {
+    setPages((prev) =>
+        prev.map((p) => {
+            if (p.id !== pageId) return p;
+            
+            let updatedBlocks = p.blocks.filter((b) => b.id !== blockId);
+            
+            // 페이지에 블록이 하나도 남지 않으면 최소한 텍스트 블록 하나를 유지
+            if (updatedBlocks.length === 0) {
+                updatedBlocks = [{ id: `block-${pageIdSeq++}`, type: 'text', text: '' }];
+            }
+            
+            return { ...p, blocks: updatedBlocks };
+        })
+    );
+  };
+
+  // 섹션 설정 모달 열기 핸들러
+  const handleOpenConfigModal = (pageId, blockId, currentConfig) => {
+    setEditingBlockLocation({ pageId, blockId });
+    // currentConfig는 이제 blockType 필드를 포함해야 합니다.
+    setConfigToEdit(currentConfig); 
+    setIsConfigModalOpen(true);
+  };
+
+  // 섹션 설정 저장 핸들러 (Generalised)
+  const handleSaveSectionConfig = (newConfig) => {
+    if (!editingBlockLocation) {
+        setIsConfigModalOpen(false);
+        return;
+    }
+    
+    // 모달이 열릴 때 저장된 blockType을 사용합니다.
+    const blockType = configToEdit.blockType; 
+    if (!blockType) {
+         setIsConfigModalOpen(false);
+         return;
+    }
+    
+    const { pageId, blockId } = editingBlockLocation;
+    
+    // newConfig에서 모달을 구분하기 위해 사용했던 blockType은 제거하고 실제 config만 저장합니다.
+    // GroupConfigModal에서 groupName을 initialConfig로 받으므로, configToSave에는 포함되어야 합니다.
+    const { blockType: _, ...configToSave } = newConfig;
+
+    // 페이지 상태 내의 해당 블록 config 업데이트
+    setPages((prev) => 
+        prev.map(p => 
+            p.id === pageId 
+                ? { 
+                    ...p, 
+                    blocks: p.blocks.map(b => 
+                        b.id === blockId && b.type === blockType
+                            ? { ...b, data: { ...b.data, config: configToSave } } 
+                            : b
+                    ) 
+                  } 
+                : p
+        )
+    );
+
+    setEditingBlockLocation(null);
+    setConfigToEdit({});
+    setIsConfigModalOpen(false);
+  }
+
+  // OverallSummarySection 호출 핸들러 (첫 페이지에 블록 삽입)
+  const handleCallOverallSection = () => {
+    if (!crossGroupSummary || crossGroupSummary.length === 0) {
+        return;
+    }
+
+    const newBlockId = `section-overall-${new Date().getTime()}`;
+    const newBlock = {
+        id: newBlockId,
+        type: 'overall_summary',
+        data: {
+            config: {
+                sectionScale: 100,
+                // titlePlain의 기본값은 calc?.name || headerTitle
+            }
+        }
+    };
+
+    let insertedPageId = null;
+
+    setPages((prevPages) => {
+        if (prevPages.length === 0) return prevPages;
+
+        const firstPage = prevPages[0];
+        const updatedFirstPage = {
+            ...firstPage,
+            // 새 블록을 첫 번째 페이지의 가장 위에 삽입
+            blocks: [newBlock, ...firstPage.blocks]
+        };
+        insertedPageId = firstPage.id;
+
+        return [updatedFirstPage, ...prevPages.slice(1)];
+    });
+    
+    if(insertedPageId) {
+        // 삽입 후 설정 모달 열기
+        handleOpenConfigModal(insertedPageId, newBlockId, {
+            ...newBlock.data.config,
+            // 모달 렌더링을 위해 blockType을 함께 전달
+            blockType: newBlock.type, 
+        });
+    }
+  };
+
+  // GroupSection 호출 핸들러 (첫 페이지에 블록 삽입) 💡 새로 추가된 기능
+  const handleCallGroupSection = (groupName) => {
+    // 해당 그룹의 데이터가 없거나, 그룹 이름이 없으면 삽입 방지
+    if (!groupName || !calc?.stats?.perGroup?.[groupName]) {
+        return;
+    }
+
+    const newBlockId = `section-group-${groupName}-${new Date().getTime()}`;
+    // GroupConfigModal에서 필요한 초기 설정 (groupName은 필수)
+    const initialGroupConfig = {
+        groupName: groupName,
+        sectionScale: 100,
+    };
+
+    const newBlock = {
+        id: newBlockId,
+        type: 'group_section',
+        data: {
+            config: initialGroupConfig
+        }
+    };
+
+    let insertedPageId = null;
+
+    setPages((prevPages) => {
+        if (prevPages.length === 0) return prevPages;
+
+        const firstPage = prevPages[0];
+        const updatedFirstPage = {
+            ...firstPage,
+            // 새 블록을 첫 번째 페이지의 가장 위에 삽입
+            blocks: [newBlock, ...firstPage.blocks]
+        };
+        insertedPageId = firstPage.id;
+
+        return [updatedFirstPage, ...prevPages.slice(1)];
+    });
+    
+    if(insertedPageId) {
+        // 삽입 후 설정 모달 열기
+        handleOpenConfigModal(insertedPageId, newBlockId, {
+            ...newBlock.data.config,
+            // 모달 렌더링을 위해 blockType을 함께 전달
+            blockType: newBlock.type, 
+        });
+    }
+  };
+
 
   const scaledWidth = (BASE_PAGE_WIDTH * pageScale) / 100;
   const scaledHeight = (BASE_PAGE_HEIGHT * pageScale) / 100;
@@ -308,14 +396,13 @@ export default function ReportEditorPage() {
   const handleChangePageScale = (e) => {
     const value = Number(e.target.value);
     if (!Number.isFinite(value)) return;
-    const clamped = Math.min(140, Math.max(60, value));
-    setPageScale(clamped);
+    setPageScale(value);
   };
 
   const handleChangePageMargin = (e) => {
     const value = Number(e.target.value);
     if (!Number.isFinite(value)) return;
-    const clamped = Math.min(96, Math.max(24, value));
+    const clamped = Math.min(80, Math.max(24, value));
     setPageMargin(clamped);
   };
 
@@ -325,267 +412,18 @@ export default function ReportEditorPage() {
       ...prev,
       {
         id: newPageId,
-        text: "",
-        shapes: [],
+        blocks: [{ id: `block-${pageIdSeq++}`, type: 'text', text: '' }],
       },
     ]);
   };
 
-  // 페이지 삭제 기능 추가
-  const handleRemovePage = (pageIdToRemove) => {
-    if (pages.length <= 1) {
-      alert("최소한 1개 이상의 페이지는 유지해야 합니다.");
-      return;
-    }
-
-    setPages((prev) => prev.filter((p) => p.id !== pageIdToRemove));
-  };
-
-  const handleChangePageText = (pageId, nextText) => {
-    setPages((prev) =>
-      prev.map((p) => (p.id === pageId ? { ...p, text: nextText } : p))
-    );
-  };
-
-  // 팔레트에서 드래그 시작
-  const handleDragStartFromPalette = (item) => (e) => {
-    e.dataTransfer.effectAllowed = "copy";
-    const payload = {
-      type: "step6-shape",
-      meta: {
-        sectionId: item.id,
-        kind: item.kind,
-        groupName: item.groupName || null,
-        sectionKey: item.sectionKey || null,
-        sectionType: item.sectionType || null,
-        label: item.label,
-      },
-    };
-    e.dataTransfer.setData("application/json", JSON.stringify(payload));
-  };
-
-  const handlePageDragOver = (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-  };
-
-  // 페이지에 드롭 → 해당 위치에 그래프/표 박스 생성
-  const handlePageDrop = (pageId) => (e) => {
-    e.preventDefault();
-    const raw = e.dataTransfer.getData("application/json");
-    if (!raw) return;
-
-    let payload;
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    if (payload.type !== "step6-shape") return;
-
-    const pageEl = pageRefs.current[pageId];
-    if (!pageEl) return;
-    const rect = pageEl.getBoundingClientRect();
-
-    const xRatio = (e.clientX - rect.left) / rect.width;
-    const yRatio = (e.clientY - rect.top) / rect.height;
-
-    const meta = payload.meta || {};
-
-    // 여백 비율 계산
-    const currentScaledWidth = pageEl.clientWidth;
-    const currentScaledHeight = pageEl.clientHeight;
-    const marginLeftRatio = pageMargin / currentScaledWidth;
-    const marginTopRatio = pageMargin / currentScaledHeight;
-
-    const newShape = {
-      id: `shape-${shapeIdSeq++}`,
-      meta,
-      // 드롭 위치가 여백 내에 있도록 제한
-      x: Math.min(1 - marginLeftRatio, Math.max(marginLeftRatio, xRatio)),
-      y: Math.min(1 - marginTopRatio, Math.max(marginTopRatio, yRatio)),
-      width: 320, // 초기 크기는 일단 고정
-      height: 220,
-    };
-
-    setPages((prev) =>
-      prev.map((p) =>
-        p.id === pageId ? { ...p, shapes: [...p.shapes, newShape] } : p
-      )
-    );
-  };
-
-  // 그래프/표 박스 드래그 시작
-  const handleShapeMouseDown = (pageId, shape, e) => {
-    e.stopPropagation();
-    e.preventDefault();
-
-    const pageEl = pageRefs.current[pageId];
-    if (!pageEl) return;
-    const rect = pageEl.getBoundingClientRect();
-
-    const pointerXRatio = (e.clientX - rect.left) / rect.width;
-    const pointerYRatio = (e.clientY - rect.top) / rect.height;
-
-    setDragState({
-      pageId,
-      shapeId: shape.id,
-      offsetXRatio: pointerXRatio - shape.x,
-      offsetYRatio: pointerYRatio - shape.y,
-    });
-    setResizeState(null);
-  };
-
-  // 리사이즈 시작 (오른쪽 아래 핸들)
-  const handleResizeMouseDown = (pageId, shape, e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setResizeState({
-      pageId,
-      shapeId: shape.id,
-      startX: e.clientX,
-      startY: e.clientY,
-      startWidth: shape.width,
-      startHeight: shape.height,
-    });
-    setDragState(null);
-  };
-
-  // 전역 mousemove / mouseup 으로 드래그 & 리사이즈 처리
-  useEffect(() => {
-    if (!dragState && !resizeState) return;
-
-    const handleMouseMove = (e) => {
-      // 페이지 엘리먼트와 여백 비율을 가져오는 헬퍼 함수
-      const getPageInfo = (pageId) => {
-        const pageEl = pageRefs.current[pageId];
-        if (!pageEl) return null;
-        const rect = pageEl.getBoundingClientRect();
-        const currentScaledWidth = pageEl.clientWidth;
-        const currentScaledHeight = pageEl.clientHeight;
-        const marginLeftRatio = pageMargin / currentScaledWidth;
-        const marginTopRatio = pageMargin / currentScaledHeight;
-        return { pageEl, rect, currentScaledWidth, currentScaledHeight, marginLeftRatio, marginTopRatio };
-      };
-
-      // 이동 (드래그)
-      if (dragState) {
-        const { pageId, shapeId, offsetXRatio, offsetYRatio } = dragState;
-        const pageInfo = getPageInfo(pageId);
-        if (!pageInfo) return;
-
-        const { rect, marginLeftRatio, marginTopRatio } = pageInfo;
-        const pointerXRatio = (e.clientX - rect.left) / rect.width;
-        const pointerYRatio = (e.clientY - rect.top) / rect.height;
-
-        let newX = pointerXRatio - offsetXRatio;
-        let newY = pointerYRatio - offsetYRatio;
-
-        // 여백 내부에만 있도록 제한
-        const MIN_X = marginLeftRatio;
-        const MAX_X = 1 - marginLeftRatio;
-        const MIN_Y = marginTopRatio;
-        const MAX_Y = 1 - marginTopRatio;
-
-        newX = Math.min(MAX_X, Math.max(MIN_X, newX));
-        newY = Math.min(MAX_Y, Math.max(MIN_Y, newY));
-
-        setPages((prev) =>
-          prev.map((p) => {
-            if (p.id !== pageId) return p;
-            return {
-              ...p,
-              shapes: p.shapes.map((s) =>
-                s.id === shapeId ? { ...s, x: newX, y: newY } : s
-              ),
-            };
-          })
-        );
+  const handleRemovePage = (pageId) => {
+    setPages((prev) => {
+      if (prev.length <= 1) {
+        return prev;
       }
-
-      // 리사이즈
-      if (resizeState) {
-        const { pageId, shapeId, startX, startY, startWidth, startHeight } =
-          resizeState;
-        const pageInfo = getPageInfo(pageId);
-        if (!pageInfo) return;
-
-        const { currentScaledWidth, currentScaledHeight, marginLeftRatio, marginTopRatio } = pageInfo;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-
-        setPages((prev) =>
-          prev.map((p) => {
-            if (p.id !== pageId) return p;
-
-            const shape = p.shapes.find(s => s.id === shapeId);
-            if (!shape) return p;
-
-            // 새로운 크기 후보
-            let newWidthCandidate = startWidth + dx;
-            let newHeightCandidate = startHeight + dy;
-
-            // 도형의 중심점 (x, y)
-            const { x, y } = shape;
-
-            // 최대 허용 크기 계산 (오른쪽/아래쪽 여백을 벗어나지 않도록)
-            // 중심점(x)에서 오른쪽 여백 경계(1 - marginLeftRatio)까지의 거리 비율
-            const maxRightBoundaryRatio = 1 - marginLeftRatio - x;
-            // 허용되는 최대 너비 (픽셀) = maxRightBoundaryRatio * 2 * currentScaledWidth
-            const maxAvailableWidth = maxRightBoundaryRatio * 2 * currentScaledWidth;
-
-            // 중심점(y)에서 아래쪽 여백 경계(1 - marginTopRatio)까지의 거리 비율
-            const maxBottomBoundaryRatio = 1 - marginTopRatio - y;
-            // 허용되는 최대 높이 (픽셀) = maxBottomBoundaryRatio * 2 * currentScaledHeight
-            const maxAvailableHeight = maxBottomBoundaryRatio * 2 * currentScaledHeight;
-
-            // 최소 크기 제한 (160, 120)과 최대 크기 제한을 적용
-            const MIN_WIDTH = 160;
-            const MIN_HEIGHT = 120;
-
-            const newWidth = Math.min(
-              maxAvailableWidth,
-              Math.max(MIN_WIDTH, newWidthCandidate)
-            );
-            const newHeight = Math.min(
-              maxAvailableHeight,
-              Math.max(MIN_HEIGHT, newHeightCandidate)
-            );
-
-            return {
-              ...p,
-              shapes: p.shapes.map((s) =>
-                s.id === shapeId
-                  ? { ...s, width: newWidth, height: newHeight }
-                  : s
-              ),
-            };
-          })
-        );
-      }
-    };
-
-    const handleMouseUp = () => {
-      setDragState(null);
-      setResizeState(null);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [dragState, resizeState, pageMargin, pages]); // pageMargin과 pages를 의존성 배열에 추가
-
-  const handleRemoveShape = (pageId, shapeId) => {
-    setPages((prev) =>
-      prev.map((p) =>
-        p.id === pageId
-          ? { ...p, shapes: p.shapes.filter((s) => s.id !== shapeId) }
-          : p
-      )
-    );
+      return prev.filter((p) => p.id !== pageId);
+    });
   };
 
   const handleBackToList = () => {
@@ -594,31 +432,52 @@ export default function ReportEditorPage() {
 
   const headerTitle = round?.name || (roundId ? `전형 #${roundId}` : "전형");
 
+  // Draft 저장 (V2 스키마)
   const handleSaveDraft = async () => {
-    if (!roundId || !projectToken) return;
+    if (!projectToken || !roundId) return;
+
+    // 저장 시에는 pages 배열의 모든 블록 정보를 포함
+    const payload = {
+      schema_version: "editor-v2", // 스키마 버전 업데이트
+      round_id: Number(roundId),
+      project_id: projectId || null,
+      name: headerTitle,
+      report: {
+        pages: pages.map((p) => ({
+          id: p.id,
+          blocks: p.blocks.map(b => {
+            if (b.type === 'text') {
+              // 텍스트 블록은 id, type, text만 저장
+              return { id: b.id, type: b.type, text: (b.text || "").trimEnd() };
+            }
+            if (b.type === 'overall_summary') {
+              // 섹션 블록은 id, type, config만 저장
+              return { id: b.id, type: b.type, config: b.data.config };
+            }
+            // 💡 Group Section 저장 로직 추가
+            if (b.type === 'group_section') {
+                return { id: b.id, type: b.type, config: b.data.config };
+            }
+            return null; 
+          }).filter(Boolean)
+        })),
+        pageScale,
+        pageMargin,
+      },
+    };
 
     try {
-      setSavingDraft(true);
+      setIsSaving(true);
       setDraftError("");
-
-      const payload = {
-        name:
-          headerTitle && typeof headerTitle === "string"
-            ? headerTitle
-            : "보고서 에디터 초안",
-        report: {
-          pages,
-          pageScale,
-          pageMargin,
-          baseWidth: BASE_PAGE_WIDTH,
-          baseHeight: BASE_PAGE_HEIGHT,
-        },
-        schema_version: "editor-v1",
-      };
 
       let res;
       if (currentReportId) {
-        res = await updateRoundReport(roundId, currentReportId, payload, projectToken);
+        res = await updateRoundReport(
+          roundId,
+          currentReportId,
+          payload,
+          projectToken
+        );
       } else {
         res = await createRoundReport(roundId, payload, projectToken);
         const created = res?.report;
@@ -628,698 +487,222 @@ export default function ReportEditorPage() {
       const savedReport = res?.report;
       setLastSavedAt(
         savedReport?.generated_at ||
-        savedReport?.updated_at ||
-        new Date().toISOString()
+          savedReport?.updated_at ||
+          new Date().toISOString()
       );
     } catch (err) {
       console.error("handleSaveDraft error:", err);
       const status = err?.response?.status;
-      if (status === 401) {
+
+      if (status === 404) {
         setDraftError(
-          "프로젝트 토큰이 만료되었습니다. 보고서 만들기 화면에서 다시 잠금을 해제해 주세요."
+          "보고서를 찾을 수 없습니다. 새로고침 후 다시 시도해 주세요."
         );
+      } else if (status === 401) {
+        setDraftError("권한이 없습니다. 프로젝트 다시 입장 후 시도해 주세요.");
       } else {
-        setDraftError("보고서 초안을 저장하는 중 오류가 발생했습니다.");
+        setDraftError("보고서 저장 중 오류가 발생했습니다.");
       }
     } finally {
-      setSavingDraft(false);
+      setIsSaving(false);
     }
   };
 
-  const formatKoreanDateTime = (isoString) => {
-    if (!isoString) return "";
+  const scheduleAutoSave = () => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    autoSaveTimerRef.current = setTimeout(() => {
+      handleSaveDraft();
+    }, 3000);
+  };
+
+  useEffect(() => {
+    // 저장 대상이 되는 상태 변경 시 자동 저장 스케줄링
+    if (!currentReportId) return;
+    // 전체 페이지/블록 구조가 변경될 때마다 저장 스케줄링
+    scheduleAutoSave(); 
+  }, [pages, pageScale, pageMargin]);
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Draft 로드 (V2 스키마 우선)
+  useEffect(() => {
+    const loadDraft = async () => {
+      if (!roundId || !projectToken) return;
+
+      try {
+        setLoadingDraft(true);
+        setDraftError("");
+
+        const data = await listRoundReports(roundId, projectToken);
+        const reports = data?.reports || [];
+        
+        // V2 스키마 우선 로드 (블록 구조)
+        const latest = reports.find(r => r.schema_version === 'editor-v2');
+
+        if (!latest) return; // V2 스키마가 없으면 로드하지 않음
+
+        const report = latest.report || {};
+        const {
+          pages: savedPages,
+          pageScale: savedScale,
+          pageMargin: savedMargin,
+        } = report;
+
+        if (Array.isArray(savedPages) && savedPages.length > 0) {
+          const mappedPages = savedPages.map((p) => {
+            const blocks = (p.blocks || []).map(b => {
+              if (b.type === 'text') {
+                return { id: b.id || `block-${pageIdSeq++}`, type: 'text', text: b.text || '' };
+              }
+              if (b.type === 'overall_summary') {
+                // 섹션 블록은 config를 data.config로 매핑하여 로드
+                return { 
+                    id: b.id || `block-${pageIdSeq++}`, 
+                    type: 'overall_summary', 
+                    data: { config: b.config || {} }
+                };
+              }
+              // 💡 Group Section 로드 로직 추가
+              if (b.type === 'group_section') {
+                return { 
+                    id: b.id || `block-${pageIdSeq++}`, 
+                    type: 'group_section', 
+                    data: { config: b.config || {} }
+                };
+              }
+              return null;
+            }).filter(Boolean);
+            
+            // 페이지가 비어 있으면 최소한 텍스트 블록 하나 추가 (편집 가능하도록)
+            if (blocks.length === 0) {
+                 blocks.push({ id: `block-${pageIdSeq++}`, type: 'text', text: '' });
+            }
+            
+            return {
+                id: p.id || `page-${pageIdSeq++}`,
+                blocks: blocks,
+            };
+          });
+          setPages(mappedPages);
+        }
+
+        if (typeof savedScale === "number") setPageScale(savedScale);
+        if (typeof savedMargin === "number") setPageMargin(savedMargin);
+        if (latest.id) setCurrentReportId(latest.id);
+
+        setLastSavedAt(
+          latest.generated_at || latest.updated_at || new Date().toISOString()
+        );
+      } catch (err) {
+        console.error("loadDraft error:", err);
+        setDraftError("기존 초안을 불러오는 중 오류가 발생했습니다.");
+      } finally {
+        setLoadingDraft(false);
+      }
+    };
+
+    loadDraft();
+  }, [roundId, projectToken]);
+
+  const getSectionJsonPreview = (item) => {
+    // ... (JSON Preview 로직 변경 없음)
+    if (!calc?.stats) return "통계 데이터가 없습니다.";
+
     try {
-      const d = new Date(isoString);
-      return d.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
-    } catch {
-      return isoString;
-    }
-  };
-
-  // Step6 표/그래프 실제 그리기
-  const renderStep6SectionVisual = (meta) => {
-    if (!calc || !calc.stats) {
-      return (
-        <div
-          style={{
-            fontSize: "11px",
-            color: "#9ca3af",
-            padding: "8px",
-            border: "1px dashed#e5e7eb",
-            borderRadius: "6px",
-          }}
-        >
-          Step6 계산 결과를 불러오면 이 영역에 표/그래프가 표시됩니다.
-        </div>
-      );
-    }
-
-    const stats = calc.stats || {};
-    const cross = stats.crossGroupSummary || [];
-    const perGroup = stats.perGroup || {};
-
-    // 전체 개요 표
-    if (meta.kind === "overview" && meta.sectionKey === "crossGroupSummary") {
-      if (!cross.length) {
-        return (
-          <div
-            style={{
-              fontSize: "11px",
-              color: "#9ca3af",
-              padding: "8px",
-              border: "1px dashed #e5e7eb",
-              borderRadius: "6px",
-            }}
-          >
-            저장된 지원분야 요약 통계가 없습니다.
-          </div>
-        );
+      if (item.kind === "overview") {
+        if (item.sectionKey === "crossGroupSummary") {
+          return JSON.stringify(
+            {
+              section: "crossGroupSummary",
+              rows: calc.stats.crossGroupSummary || [],
+            },
+            null,
+            2
+          );
+        }
       }
 
-      const headers = [
-        "지원분야(통합)",
-        "통계 대상 인원",
-        "전형 합격률(%)",
-        "총점 평균",
-        "전형 합격 커트라인 점수",
-        "합격컷 상위 %",
-      ];
+      if (item.kind === "group") {
+        const perGroup = calc.stats.perGroup || {};
+        const groupStats = perGroup[item.groupName];
+        if (!groupStats) {
+          return `${item.groupName}에 대한 통계가 없습니다.`;
+        }
 
-      return (
-        <div
-          style={{
-            width: "100%",
-            overflowX: "auto",
-          }}
-        >
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: "11px",
-            }}
-          >
-            <thead>
-              <tr>
-                {headers.map((label) => (
-                  <th
-                    key={label}
-                    style={{
-                      borderBottom: "1px solid #e5e7eb",
-                      padding: "4px 6px",
-                      backgroundColor: "#f9fafb",
-                      fontWeight: 600,
-                      textAlign: "center",
-                    }}
-                  >
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {cross.map((row) => (
-                <tr key={row.groupName}>
-                  <td
-                    style={{
-                      borderBottom: "1px solid #f3f4f6",
-                      padding: "4px 6px",
-                    }}
-                  >
-                    {row.groupName}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: "1px solid #f3f4f6",
-                      padding: "4px 6px",
-                      textAlign: "right",
-                    }}
-                  >
-                    {row.n}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: "1px solid#f3f4f6",
-                      padding: "4px 6px",
-                      textAlign: "right",
-                    }}
-                  >
-                    {row.passRate != null ? row.passRate.toFixed(1) : "-"}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: "1px solid#f3f4f6",
-                      padding: "4px 6px",
-                      textAlign: "right",
-                    }}
-                  >
-                    {row.avgTotal != null ? row.avgTotal.toFixed(2) : "-"}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: "1px solid#f3f4f6",
-                      padding: "4px 6px",
-                      textAlign: "right",
-                    }}
-                  >
-                    {row.cutoff != null ? row.cutoff.toFixed(2) : "-"}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: "1px solid#f3f4f6",
-                      padding: "4px 6px",
-                      textAlign: "right",
-                    }}
-                  >
-                    {row.cutoffPercent != null
-                      ? row.cutoffPercent.toFixed(1)
-                      : "-"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    }
+        if (item.sectionKey === "summary") {
+          return JSON.stringify(
+            {
+              section: "summaryStats",
+              groupName: item.groupName,
+              summaryStats: groupStats.summaryStats,
+            },
+            null,
+            2
+          );
+        }
 
-    // 그룹별 요약
-    // 그룹별 요약
-    if (meta.kind === "group" && meta.sectionKey === "summary") {
-      const stats = calc.stats || {};
-      const cross = stats.crossGroupSummary || [];
-      const perGroup = stats.perGroup || {};
+        if (item.sectionKey === "phase-total-avg") {
+          return JSON.stringify(
+            {
+              section: "phaseTotalAvgData",
+              groupName: item.groupName,
+              phaseTotalAvgData: groupStats.phaseTotalAvgData,
+            },
+            null,
+            2
+          );
+        }
 
-      const groupStats = perGroup[meta.groupName];
-      const summary = groupStats && groupStats.summaryStats;
+        if (item.sectionKey === "field-stats") {
+          return JSON.stringify(
+            {
+              section: "fieldStats",
+              groupName: item.groupName,
+              fieldStats: groupStats.fieldStats,
+            },
+            null,
+            2
+          );
+        }
 
-      // ✅ v2: Step6에서 summaryStats 저장된 경우 → 이걸 최우선 사용
-      if (summary) {
-        const rows = [
-          { label: "통계 대상 인원", value: summary.n ?? "-" },
-          {
-            label: "전형 합격률(%)",
-            value:
-              summary.passRate != null
-                ? `${summary.passRate.toFixed(1)}%`
-                : "-",
-          },
-          {
-            label: "최고점",
-            value:
-              summary.maxTotal != null
-                ? summary.maxTotal.toFixed(2)
-                : "-",
-          },
-          {
-            label: "최저점",
-            value:
-              summary.minTotal != null
-                ? summary.minTotal.toFixed(2)
-                : "-",
-          },
-          {
-            label: "합격자 기준 최저점 (커트라인)",
-            value:
-              summary.cutoff != null
-                ? summary.cutoff.toFixed(2)
-                : "-",
-          },
-          {
-            label: "불합격자 기준 최고점",
-            value:
-              summary.bestFailTotal != null
-                ? summary.bestFailTotal.toFixed(2)
-                : "-",
-          },
-          {
-            label: "총점 평균",
-            value:
-              summary.avgTotal != null
-                ? summary.avgTotal.toFixed(2)
-                : "-",
-          },
-          {
-            label: "총점 중앙값",
-            value:
-              summary.medianTotal != null
-                ? summary.medianTotal.toFixed(2)
-                : "-",
-          },
-          {
-            label: "총점 표준편차",
-            value:
-              summary.stdTotal != null
-                ? summary.stdTotal.toFixed(2)
-                : "-",
-          },
-          {
-            label: "합격컷 상위 %",
-            value:
-              summary.cutoffPercent != null
-                ? `${summary.cutoffPercent.toFixed(1)}%`
-                : "-",
-          },
-        ];
-
-        return (
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: "11px",
-            }}
-          >
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.label}>
-                  <td
-                    style={{
-                      width: "45%",
-                      borderBottom: "1px solid #f3f4f6",
-                      padding: "4px 6px",
-                      backgroundColor: "#f9fafb",
-                    }}
-                  >
-                    {r.label}
-                  </td>
-                  <td
-                    style={{
-                      borderBottom: "1px solid #f3f4f6",
-                      padding: "4px 6px",
-                      textAlign: "right",
-                    }}
-                  >
-                    {r.value}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        );
+        if (item.sectionKey === "final-compare") {
+          return JSON.stringify(
+            {
+              section: "finalCompareData",
+              groupName: item.groupName,
+              finalCompareData: groupStats.finalCompareData,
+            },
+            null,
+            2
+          );
+        }
       }
 
-      // ✅ v1 호환: summaryStats 없는 옛 데이터 → 기존 crossGroupSummary 기반 fallback
-      const row = cross.find((r) => r.groupName === meta.groupName);
-      if (!row) {
-        return (
-          <div
-            style={{
-              fontSize: "11px",
-              color: "#9ca3af",
-              padding: "8px",
-              border: "1px dashed #e5e7eb",
-              borderRadius: "6px",
-            }}
-          >
-            이 지원분야에 대한 저장된 요약 통계를 찾을 수 없습니다.
-          </div>
-        );
-      }
-
-      const rows = [
-        { label: "통계 대상 인원", value: row.n },
-        {
-          label: "전형 합격률(%)",
-          value:
-            row.passRate != null ? `${row.passRate.toFixed(1)}%` : "-",
-        },
-        {
-          label: "총점 평균",
-          value:
-            row.avgTotal != null ? row.avgTotal.toFixed(2) : "-",
-        },
-        {
-          label: "전형 합격 커트라인 점수",
-          value:
-            row.cutoff != null ? row.cutoff.toFixed(2) : "-",
-        },
-        {
-          label: "합격컷 상위 %",
-          value:
-            row.cutoffPercent != null
-              ? `${row.cutoffPercent.toFixed(1)}%`
-              : "-",
-        },
-      ];
-
-      return (
-        <table
-          style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            fontSize: "11px",
-          }}
-        >
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.label}>
-                <td
-                  style={{
-                    width: "40%",
-                    borderBottom: "1px solid #f3f4f6",
-                    padding: "4px 6px",
-                    backgroundColor: "#f9fafb",
-                  }}
-                >
-                  {r.label}
-                </td>
-                <td
-                  style={{
-                    borderBottom: "1px solid #f3f4f6",
-                    padding: "4px 6px",
-                    textAlign: "right",
-                  }}
-                >
-                  {r.value}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      );
+      return "미리보기가 정의되지 않은 섹션입니다.";
+    } catch (e) {
+      console.error("getSectionJsonPreview error:", e);
+      return "미리보기 생성 중 오류가 발생했습니다.";
     }
-
-
-    // 전형 결과별 합/불 총점 평균 그래프
-    if (meta.kind === "group" && meta.sectionKey === "phase-total-avg") {
-      const groupStats = perGroup[meta.groupName];
-      const data = groupStats?.phaseTotalAvgData || [];
-
-      if (!data.length) {
-        return (
-          <div
-            style={{
-              fontSize: "11px",
-              color: "#9ca3af",
-              padding: "8px",
-              border: "1px dashed #e5e7eb",
-              borderRadius: "6px",
-            }}
-          >
-            이 지원분야에 대한 합/불 총점 평균 데이터가 없습니다.
-          </div>
-        );
-      }
-
-      return (
-        <div
-          style={{
-            width: "100%",
-            maxWidth: "100%",
-            height: "100%",
-            minHeight: 160,
-          }}
-        >
-          <ResponsiveContainer>
-            <BarChart
-              data={data}
-              margin={{ top: 20, right: 10, left: 10, bottom: 10 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="phase" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="avg" name="총점 평균" fillOpacity={0.9}>
-                <LabelList
-                  dataKey="avg"
-                  position="top"
-                  formatter={formatLabelValue}
-                  style={{ fontSize: 11 }}
-                />
-                {data.map((d, idx) => (
-                  <Cell
-                    key={`cell-${idx}`}
-                    fill={
-                      d.phase === "합격" ? COLORS.primary : COLORS.secondary
-                    }
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      );
-    }
-
-    // 평가항목별 표 + 그래프
-    if (meta.kind === "group" && meta.sectionKey === "field-stats") {
-      const groupStats = perGroup[meta.groupName];
-      const fieldStats = groupStats?.fieldStats || [];
-
-      if (!fieldStats.length) {
-        return (
-          <div
-            style={{
-              fontSize: "11px",
-              color: "#9ca3af",
-              padding: "8px",
-              border: "1px dashed #e5e7eb",
-              borderRadius: "6px",
-            }}
-          >
-            이 지원분야에 대한 평가항목별 통계가 없습니다.
-          </div>
-        );
-      }
-
-      const chartData = fieldStats.map((fs) => ({
-        field: fs.field,
-        passAvg: fs.passAvg,
-        failAvg: fs.failAvg,
-      }));
-
-      return (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            height: "100%",
-            gap: 4,
-          }}
-        >
-          <div
-            style={{
-              width: "100%",
-              overflowX: "auto",
-            }}
-          >
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: "11px",
-              }}
-            >
-              <thead>
-                <tr>
-                  {[
-                    "평가항목",
-                    "합격자 평균",
-                    "불합격자 평균",
-                    "합격 공헌도 (상관계수)",
-                  ].map((label) => (
-                    <th
-                      key={label}
-                      style={{
-                        borderBottom: "1px solid #e5e7eb",
-                        padding: "4px 6px",
-                        backgroundColor: "#f9fafb",
-                        fontWeight: 600,
-                        textAlign: "center",
-                      }}
-                    >
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {fieldStats.map((fs) => (
-                  <tr key={fs.field}>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #f3f4f6",
-                        padding: "4px 6px",
-                      }}
-                    >
-                      {fs.field}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #f3f4f6",
-                        padding: "4px 6px",
-                        textAlign: "right",
-                      }}
-                    >
-                      {fs.passAvg != null ? fs.passAvg.toFixed(2) : "-"}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #f3f4f6",
-                        padding: "4px 6px",
-                        textAlign: "right",
-                      }}
-                    >
-                      {fs.failAvg != null ? fs.failAvg.toFixed(2) : "-"}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #f3f4f6",
-                        padding: "4px 6px",
-                        textAlign: "right",
-                      }}
-                    >
-                      {fs.corr != null ? fs.corr.toFixed(3) : "-"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div
-            style={{
-              flex: 1,
-              minHeight: 140,
-            }}
-          >
-            <ResponsiveContainer>
-              <BarChart
-                data={chartData}
-                margin={{ top: 20, right: 10, left: 10, bottom: 10 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="field" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar
-                  dataKey="passAvg"
-                  name="합격자"
-                  fill={COLORS.primary}
-                  fillOpacity={0.9}
-                  barSize={20}
-                >
-                  <LabelList
-                    dataKey="passAvg"
-                    position="top"
-                    formatter={formatLabelValue}
-                    style={{ fontSize: 10 }}
-                  />
-                </Bar>
-                <Bar
-                  dataKey="failAvg"
-                  name="불합격자"
-                  fill={COLORS.secondary}
-                  fillOpacity={0.9}
-                  barSize={20}
-                >
-                  <LabelList
-                    dataKey="failAvg"
-                    position="top"
-                    formatter={formatLabelValue}
-                    style={{ fontSize: 10 }}
-                  />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      );
-    }
-
-    // 최종 결과 비교 그래프
-    if (meta.kind === "group" && meta.sectionKey === "final-compare") {
-      const groupStats = perGroup[meta.groupName];
-      const data = groupStats?.finalCompareData || [];
-
-      if (!data.length) {
-        return (
-          <div
-            style={{
-              fontSize: "11px",
-              color: "#9ca3af",
-              padding: "8px",
-              border: "1px dashed #e5e7eb",
-              borderRadius: "6px",
-            }}
-          >
-            이 지원분야에 대한 최종 결과 비교 데이터가 없습니다.
-          </div>
-        );
-      }
-
-      return (
-        <div
-          style={{
-            width: "100%",
-            maxWidth: "100%",
-            height: "100%",
-            minHeight: 160,
-          }}
-        >
-          <ResponsiveContainer>
-            <BarChart
-              data={data}
-              margin={{ top: 20, right: 10, left: 10, bottom: 10 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="group" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="avg" name="총점 평균" fillOpacity={0.9}>
-                <LabelList
-                  dataKey="avg"
-                  position="top"
-                  formatter={formatLabelValue}
-                  style={{ fontSize: 11 }}
-                />
-                {data.map((d, idx) => (
-                  <Cell
-                    key={`final-cell-${idx}`}
-                    fill={
-                      d.group.includes("불합격")
-                        ? COLORS.secondary
-                        : COLORS.primary
-                    }
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      );
-    }
-
-    // 아직 스냅샷에 없는 것
-    return (
-      <div
-        style={{
-          padding: "10px 12px",
-          borderRadius: "6px",
-          border: "1px dashed #e5e7eb",
-          fontSize: "11px",
-          color: "#6b7280",
-        }}
-      >
-        이 섹션에 해당하는 그래프/상세 표는 아직 Step6 계산 스냅샷에
-        포함되어 있지 않습니다.
-      </div>
-    );
   };
 
   return (
     <div
       style={{
         padding: "16px 16px 32px",
-        maxWidth: "1400px",
+        maxWidth: "1800px",
         margin: "0 auto",
       }}
     >
-      {/* 상단 헤더 */}
+      {/* 상단 헤더 (변경 없음) */}
+      {/* ... (Header code) ... */}
       <div
         style={{
           display: "flex",
@@ -1335,26 +718,26 @@ export default function ReportEditorPage() {
               display: "flex",
               alignItems: "center",
               gap: "8px",
-              marginBottom: "4px",
             }}
           >
             <button
               type="button"
               onClick={handleBackToList}
               style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
                 padding: "4px 8px",
                 borderRadius: "999px",
-                border: "1px solid #d1d5db",
                 fontSize: "11px",
-                backgroundColor: "#fff",
-                cursor: "pointer",
+                color: "#4b5563",
               }}
             >
-              ⬅ 보고서 목록으로
+              ← 목록으로
             </button>
             <h1
               style={{
-                fontSize: "20px",
+                fontSize: "18px",
                 fontWeight: 700,
                 margin: 0,
               }}
@@ -1372,25 +755,47 @@ export default function ReportEditorPage() {
         </div>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           {lastSavedAt && (
-            <span style={{ fontSize: "11px", color: "#6b7280" }}>
-              마지막 저장: {formatKoreanDateTime(lastSavedAt)}
-            </span>
+            <div
+              style={{
+                fontSize: "11px",
+                color: "#6b7280",
+              }}
+            >
+              마지막 저장:{" "}
+              <span style={{ fontWeight: 500 }}>
+                {new Date(lastSavedAt).toLocaleString("ko-KR")}
+              </span>
+            </div>
+          )}
+          {draftError && (
+            <div
+              style={{
+                fontSize: "11px",
+                color: "#b91c1c",
+                backgroundColor: "#fee2e2",
+                padding: "4px 8px",
+                borderRadius: "999px",
+                border: "1px solid #fecaca",
+              }}
+            >
+              {draftError}
+            </div>
           )}
           <button
             type="button"
             onClick={handleSaveDraft}
-            disabled={savingDraft}
+            disabled={isSaving}
             style={{
-              padding: "6px 10px",
+              padding: "6px 12px",
               borderRadius: "999px",
               border: "1px solid #4b5563",
-              backgroundColor: savingDraft ? "#e5e7eb" : "#fff",
-              color: "#111827",
+              backgroundColor: isSaving ? "#e5e7eb" : "#111827",
+              color: isSaving ? "#6b7280" : "#f9fafb",
               fontSize: "12px",
-              cursor: savingDraft ? "default" : "pointer",
+              cursor: isSaving ? "default" : "pointer",
             }}
           >
-            {savingDraft ? "저장 중..." : "💾 저장"}
+            {isSaving ? "저장 중..." : "💾 저장"}
           </button>
           <button
             type="button"
@@ -1398,7 +803,7 @@ export default function ReportEditorPage() {
             style={{
               padding: "6px 12px",
               borderRadius: "999px",
-              border: "1px solid#2563eb",
+              border: "1px solid #2563eb",
               backgroundColor: "#2563eb",
               color: "#fff",
               fontSize: "12px",
@@ -1410,36 +815,14 @@ export default function ReportEditorPage() {
         </div>
       </div>
 
-      {/* 상태 메시지 */}
-      <div
-        style={{ fontSize: "12px", minHeight: "18px", marginBottom: "4px" }}
-      >
-        {loadingCalc && (
-          <span style={{ color: "#6b7280", marginRight: 8 }}>
-            Step6 계산 결과를 불러오는 중입니다...
-          </span>
-        )}
-        {loadingDraft && (
-          <span style={{ color: "#6b7280", marginRight: 8 }}>
-            기존 보고서 초안을 불러오는 중입니다...
-          </span>
-        )}
-        {!loadingCalc && calcError && (
-          <span style={{ color: "#b91c1c", marginRight: 8 }}>{calcError}</span>
-        )}
-        {!loadingDraft && draftError && (
-          <span style={{ color: "#b91c1c" }}>{draftError}</span>
-        )}
-      </div>
 
-      {/* 페이지 설정 */}
+      {/* 페이지 설정 (변경 없음) */}
       <div
         style={{
           display: "flex",
-          flexWrap: "wrap",
-          gap: "12px",
           alignItems: "center",
-          fontSize: "12px",
+          gap: "12px",
+          marginBottom: "12px",
           padding: "8px 10px",
           borderRadius: "10px",
           border: "1px solid #e5e7eb",
@@ -1485,7 +868,7 @@ export default function ReportEditorPage() {
           <input
             type="range"
             min={24}
-            max={96}
+            max={80}
             value={pageMargin}
             onChange={handleChangePageMargin}
           />
@@ -1518,11 +901,11 @@ export default function ReportEditorPage() {
         </div>
       </div>
 
-      {/* 좌 / 우 레이아웃 */}
+      {/* 좌 / 가운데 / 우 레이아웃 (3열) */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(260px, 340px) minmax(0, 1fr)",
+          gridTemplateColumns: "minmax(260px, 340px) minmax(0, 1fr) 300px", // 3열 레이아웃 유지
           gap: "16px",
           alignItems: "flex-start",
         }}
@@ -1534,17 +917,34 @@ export default function ReportEditorPage() {
             borderRadius: "10px",
             backgroundColor: "#f9fafb",
             padding: "10px",
-            maxHeight: "calc(100vh - 180px)",
-            overflowY: "auto",
+            fontSize: "11px",
           }}
         >
           <div
             style={{
-              fontSize: "13px",
+              fontSize: "12px",
               fontWeight: 700,
-              marginBottom: "8px",
+              marginBottom: "4px",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
             }}
           >
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "18px",
+                height: "18px",
+                borderRadius: "999px",
+                backgroundColor: "#111827",
+                color: "#f9fafb",
+                fontSize: "10px",
+              }}
+            >
+              1
+            </span>
             📂 Step6 분석 재료
           </div>
           <div
@@ -1554,9 +954,11 @@ export default function ReportEditorPage() {
               marginBottom: "8px",
             }}
           >
-            항목을 마우스로 끌어다가 우측 페이지 위에 떨구면, 해당 위치에
-            표/그래프 박스가 생성됩니다. 텍스트는 페이지 아무 곳이나 클릭해서
-            바로 입력하면 됩니다.
+            각 재료에 마우스를 올리면, 해당 섹션에 대응하는 Step6 통계 JSON 일부가
+            말풍선으로 표시됩니다.{" "}
+            <span style={{ color: "#374151" }}>
+              (지금은 그래프/표 렌더링 없이 데이터만 참고용으로 제공)
+            </span>
           </div>
 
           {/* 전체 개요 */}
@@ -1578,24 +980,88 @@ export default function ReportEditorPage() {
             >
               전체 개요
             </div>
-            {paletteItems.overview.map((item) => (
-              <div
-                key={item.id}
-                draggable
-                onDragStart={handleDragStartFromPalette(item)}
-                style={{
-                  fontSize: "11px",
-                  padding: "6px 8px",
-                  borderRadius: "999px",
-                  border: "1px solid #d1d5db",
-                  backgroundColor: "#f3f4f6",
-                  cursor: "grab",
-                  marginBottom: "4px",
-                }}
-              >
-                {item.label}
-              </div>
-            ))}
+            {paletteItems.overview.map((item) => {
+              const isHovered = hoveredPaletteId === item.id;
+              const jsonText = isHovered ? getSectionJsonPreview(item) : "";
+
+              return (
+                <div
+                  key={item.id}
+                  style={{
+                    position: "relative",
+                    fontSize: "11px",
+                    padding: "6px 8px",
+                    borderRadius: "999px",
+                    border: "1px solid #d1d5db",
+                    backgroundColor: "#f3f4f6",
+                    cursor: "default",
+                    marginBottom: "4px",
+                  }}
+                  onMouseEnter={() => setHoveredPaletteId(item.id)}
+                  onMouseLeave={() => setHoveredPaletteId(null)}
+                >
+                  {item.label}
+                  {isHovered && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "110%",
+                        left: 0,
+                        zIndex: 20,
+                        maxWidth: "380px",
+                        maxHeight: "260px",
+                        padding: "8px",
+                        backgroundColor: "#111827",
+                        color: "#e5e7eb",
+                        borderRadius: "8px",
+                        boxShadow: "0 10px 25px rgba(0,0,0,0.25)",
+                        fontSize: "10px",
+                        overflow: "auto",
+                        whiteSpace: "pre",
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: "-6px",
+                          left: "12px",
+                          width: 0,
+                          height: 0,
+                          borderLeft: "6px solid transparent",
+                          borderRight: "6px solid transparent",
+                          borderBottom: "6px solid #111827",
+                        }}
+                      />
+                      <pre
+                        style={{
+                          margin: 0,
+                          fontFamily:
+                            '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                        }}
+                      >
+                        {jsonText || "데이터 없음"}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={handleCallOverallSection} // 첫 페이지에 블록 삽입
+              style={{
+                marginTop: "6px",
+                padding: "4px 8px",
+                borderRadius: "999px",
+                border: "1px solid #2563eb",
+                backgroundColor: "#2563eb",
+                color: "#fff",
+                fontSize: "11px",
+                cursor: "pointer",
+              }}
+            >
+              전체개요 섹션 삽입
+            </button>
           </div>
 
           {/* 지원분야별 상세 */}
@@ -1614,63 +1080,142 @@ export default function ReportEditorPage() {
                 style={{
                   fontSize: "11px",
                   color: "#9ca3af",
-                  padding: "6px 4px",
                 }}
               >
-                저장된 Step6 통계에서 지원분야 정보를 찾을 수 없습니다.
+                지원분야 통계가 없습니다.
               </div>
             )}
-            {paletteItems.groups.map((group) => (
+            {groupNames.length > 0 && (
               <div
-                key={group.groupName}
                 style={{
-                  marginBottom: "8px",
-                  padding: "6px 8px",
-                  borderRadius: "8px",
-                  backgroundColor: "#fff",
-                  border: "1px solid #e5e7eb",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
                 }}
               >
-                <div
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    marginBottom: "4px",
-                  }}
-                >
-                  {group.groupName}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "4px",
-                  }}
-                >
-                  {group.items.map((item) => (
+                {paletteItems.groups.map((group) => (
+                  <div
+                    key={group.groupName}
+                    style={{
+                      marginBottom: "8px",
+                      padding: "6px 8px",
+                      borderRadius: "8px",
+                      backgroundColor: "#fff",
+                      border: "1px solid #e5e7eb",
+                    }}
+                  >
                     <div
-                      key={item.id}
-                      draggable
-                      onDragStart={handleDragStartFromPalette(item)}
                       style={{
                         fontSize: "11px",
-                        padding: "4px 8px",
-                        borderRadius: "999px",
-                        border: "1px solid #d1d5db",
-                        backgroundColor: "#f9fafb",
-                        cursor: "grab",
+                        fontWeight: 600,
+                        marginBottom: "4px",
                       }}
                     >
-                      {item.label}
+                      {group.groupName}
                     </div>
-                  ))}
-                </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "4px",
+                      }}
+                    >
+                      {group.items.map((item) => {
+                        const isHovered = hoveredPaletteId === item.id;
+                        const jsonText = isHovered
+                          ? getSectionJsonPreview(item)
+                          : "";
+
+                        return (
+                          <div
+                            key={item.id}
+                            style={{
+                              position: "relative",
+                              fontSize: "11px",
+                              padding: "4px 8px",
+                              borderRadius: "999px",
+                              border: "1px solid #d1d5db",
+                              backgroundColor: "#f9fafb",
+                              cursor: "default",
+                            }}
+                            onMouseEnter={() => setHoveredPaletteId(item.id)}
+                            onMouseLeave={() => setHoveredPaletteId(null)}
+                          >
+                            {item.label}
+                            {isHovered && (
+                              <div
+                                style={{
+                                  position: "absolute",
+                                  top: "110%",
+                                  left: 0,
+                                  zIndex: 20,
+                                  maxWidth: "380px",
+                                  maxHeight: "260px",
+                                  padding: "8px",
+                                  backgroundColor: "#111827",
+                                  color: "#e5e7eb",
+                                  borderRadius: "8px",
+                                  boxShadow: "0 10px 25px rgba(0,0,0,0.25)",
+                                  fontSize: "10px",
+                                  overflow: "auto",
+                                  whiteSpace: "pre",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    position: "absolute",
+                                    top: "-6px",
+                                    left: "12px",
+                                    width: 0,
+                                    height: 0,
+                                    borderLeft:
+                                      "6px solid transparent",
+                                    borderRight:
+                                      "6px solid transparent",
+                                    borderBottom:
+                                      "6px solid #111827",
+                                  }}
+                                />
+                                <pre
+                                  style={{
+                                    margin: 0,
+                                    fontFamily:
+                                      '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                                  }}
+                                >
+                                  {jsonText || "데이터 없음"}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {/* 💡 Group Section 삽입 버튼 추가 */}
+                      <button
+                        type="button"
+                        onClick={() => handleCallGroupSection(group.groupName)}
+                        style={{
+                            marginTop: "6px",
+                            padding: "4px 8px",
+                            borderRadius: "999px",
+                            border: "1px solid #2563eb",
+                            backgroundColor: "#2563eb",
+                            color: "#fff",
+                            fontSize: "11px",
+                            cursor: "pointer",
+                        }}
+                      >
+                        {group.groupName} 섹션 삽입
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         </div>
 
-        {/* 우측: 페이지 에디터 */}
+        {/* 가운데: 페이지 에디터 (블록 렌더링) */}
         <div
           style={{
             padding: "4px 0 16px",
@@ -1698,21 +1243,23 @@ export default function ReportEditorPage() {
                   style={{
                     fontSize: "11px",
                     color: "#6b7280",
-                    display: 'flex',
-                    gap: '8px',
-                    alignItems: 'center',
+                    display: "flex",
+                    gap: "8px",
+                    alignItems: "center",
                   }}
                 >
                   <span>페이지 {pageIndex + 1}</span>
-                  {/* 페이지 삭제 버튼 */}
                   {pages.length > 1 && (
                     <button
                       type="button"
                       onClick={() => handleRemovePage(page.id)}
                       style={{
+                        border: "none",
                         padding: "2px 6px",
-                        borderRadius: "4px",
-                        border: "1px solid #fca5a5",
+                        borderRadius: "999px",
+                        borderColor: "#fca5a5",
+                        borderWidth: "1px",
+                        borderStyle: "solid",
                         fontSize: "10px",
                         backgroundColor: "#fee2e2",
                         cursor: "pointer",
@@ -1723,149 +1270,215 @@ export default function ReportEditorPage() {
                     </button>
                   )}
                 </div>
+                {/* 페이지 컨테이너: 블록 흐름 영역 */}
                 <div
-                  ref={(el) => {
-                    if (el) {
-                      pageRefs.current[page.id] = el;
-                    }
-                  }}
-                  onDragOver={handlePageDragOver}
-                  onDrop={handlePageDrop(page.id)}
                   style={{
                     width: `${scaledWidth}px`,
                     height: `${scaledHeight}px`,
                     backgroundColor: "#fff",
                     boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
                     borderRadius: "4px",
-                    // 기존 padding: `${pageMargin}px` 제거, 텍스트 레이어에 여백을 적용함
-                    boxSizing: "content-box", // 패딩을 사용하지 않으므로 content-box 유지
+                    boxSizing: "content-box",
                     position: "relative",
-                    overflow: "hidden",
+                    overflow: "auto", // 페이지 내용이 넘칠 경우 스크롤 허용
                   }}
                 >
-
-                  {/* 여백 경계선 시각화: 절대 위치를 사용하여 여백 영역을 표시 */}
+                  {/* 블록 렌더링 영역: 여기에 페이지 여백 적용 */}
                   <div
                     style={{
-                      position: "absolute",
-                      top: `${pageMargin}px`,
-                      bottom: `${pageMargin}px`,
-                      left: `${pageMargin}px`,
-                      right: `${pageMargin}px`,
-                      border: `1px dashed #cccccc`,
-                      pointerEvents: "none", // 이벤트를 통과시켜 아래 요소가 작동하게 함
-                      boxSizing: "border-box",
-                      zIndex: 10, // 도형/텍스트 위에 배치
-                    }}
-                  />
-
-                  {/* 텍스트 레이어: 페이지 전체. 여백 영역까지 스크롤됨. */}
-                  {/* 텍스트가 여백 안쪽에서 시작되도록 padding 적용 */}
-                  <div
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      boxSizing: "border-box",
-                      overflowY: "auto",
-                      padding: `${pageMargin}px`, // 텍스트 영역에 여백 적용
-                      zIndex: 1, // 도형보다 아래에 배치
+                      position: "relative",
+                      padding: `${pageMargin}px`, // 페이지 여백
+                      width: "100%",
+                      height: "100%",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "24px", // 블록 간 간격
+                      boxSizing: 'border-box',
+                      minHeight: "100%",
                     }}
                   >
-                    <PageTextEditor
-                      content={page.text}
-                      onChangeContent={(next) =>
-                        handleChangePageText(page.id, next)
+                    {/* 블록 순회 및 렌더링 */}
+                    {page.blocks.map((block, blockIndex) => {
+                      if (block.type === 'text') {
+                        return (
+                          <div 
+                            key={block.id} 
+                            style={{ 
+                                // 텍스트 블록은 공간을 채우도록 flex-grow 1 적용 가능
+                                // 그러나 드래그앤드롭이 구현되지 않은 현 단계에서는 고정 높이 또는 min-height로 처리
+                                minHeight: '100px', 
+                                flexGrow: 1,
+                                border: '1px dashed #e5e7eb', // 텍스트 블록 시각화
+                                padding: '12px 16px', // 텍스트 에디터 내부 패딩
+                            }}
+                          >
+                            <PageTextEditor
+                              page={{ text: block.text }} 
+                              onChange={(text) =>
+                                handleChangePageText(page.id, block.id, text)
+                              }
+                            />
+                          </div>
+                        );
                       }
-                    />
-                  </div>
-
-                  {/* 그래프/표 도형 레이어 */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      zIndex: 2, // 텍스트보다 위에 배치
-                    }}
-                  >
-                    {page.shapes.map((shape) => (
-                      <div
-                        key={shape.id}
-                        onMouseDown={(e) => handleShapeMouseDown(page.id, shape, e)}
-                        style={{
-                          position: "absolute",
-                          left: `${shape.x * 100}%`,
-                          top: `${shape.y * 100}%`,
-                          transform: "translate(-50%, -50%)",
-                          width: `${shape.width}px`,
-                          height: `${shape.height}px`,
-                          backgroundColor: "#ffffff",
-                          boxShadow: "0 0 0 1px #e5e7eb",
-                          borderRadius: "4px",
-                          padding: "4px 6px",
-                          boxSizing: "border-box",
-                          overflow: "auto",
-                          cursor: "move",
-                        }}
-                      >
-                        {/* 삭제 버튼 */}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveShape(page.id, shape.id);
-                          }}
-                          style={{
-                            position: "absolute",
-                            top: 2,
-                            right: 2,
-                            border: "none",
-                            background: "rgba(248,250,252,0.9)",
-                            borderRadius: "999px",
-                            padding: "0 5px",
-                            fontSize: "10px",
-                            cursor: "pointer",
-                            color: "#9ca3af",
-                            zIndex: 11, // 가장 위에 오도록
-                          }}
-                        >
-                          ✕
-                        </button>
-
-                        {/* 리사이즈 핸들 (오른쪽 아래) */}
-                        <div
-                          onMouseDown={(e) =>
-                            handleResizeMouseDown(page.id, shape, e)
+                      
+                      if (block.type === 'overall_summary') {
+                        return (
+                          <div key={block.id} style={{ position: 'relative' }}>
+                            {/* 블록 제거 버튼 */}
+                            <button
+                                type="button"
+                                onClick={() => handleRemoveBlock(page.id, block.id)}
+                                style={{
+                                    position: "absolute",
+                                    top: "-15px",
+                                    right: "0px",
+                                    zIndex: 10,
+                                    border: "1px solid #fca5a5",
+                                    padding: "2px 6px",
+                                    borderRadius: "999px",
+                                    fontSize: "10px",
+                                    backgroundColor: "#fee2e2",
+                                    cursor: "pointer",
+                                    color: "#b91c1c",
+                                }}
+                            >
+                                ✕ 섹션 제거
+                            </button>
+                            
+                            <OverallSummarySection
+                              roundName={calc?.name || headerTitle}
+                              rows={crossGroupSummary}
+                              config={block.data.config}
+                              // 섹션 텍스트/캡션 변경 시 바로 data.config 업데이트
+                              onChangeConfig={(newConfig) => handleUpdateBlockData(page.id, block.id, { data: { ...block.data, config: newConfig }})}
+                              // 섹션 설정 버튼 클릭 시 모달 열기
+                              onEditClick={() => handleOpenConfigModal(page.id, block.id, {
+                                  ...block.data.config,
+                                  blockType: block.type // 💡 모달 구분을 위해 blockType 추가
+                              })}
+                            />
+                          </div>
+                        );
+                      }
+                      
+                      // 💡 GroupSection 렌더링 로직 추가
+                      if (block.type === 'group_section') {
+                          const groupName = block.data.config?.groupName;
+                          const groupData = calc?.stats?.perGroup?.[groupName] || {};
+                          
+                          // 해당 그룹의 통계 데이터가 없거나, 그룹 이름이 없으면 렌더링하지 않음
+                          if (!groupName || Object.keys(groupData).length === 0) {
+                              return (
+                                  <div key={block.id} style={{ border: '1px dashed #ef4444', padding: '12px', color: '#dc2626', backgroundColor: '#fecaca', fontSize: '11px' }}>
+                                      {groupName ? `[${groupName}] 통계 데이터가 없습니다.` : "그룹 섹션: 그룹 이름이 설정되지 않았습니다."}
+                                      <button 
+                                          onClick={() => handleRemoveBlock(page.id, block.id)} 
+                                          style={{ marginLeft: '10px', fontSize: '10px', border: 'none', background: 'none', color: '#991b1b', cursor: 'pointer' }}>
+                                          (삭제)
+                                      </button>
+                                  </div>
+                              );
                           }
-                          style={{
-                            position: "absolute",
-                            right: 2,
-                            bottom: 2,
-                            width: 10,
-                            height: 10,
-                            borderRadius: "2px",
-                            backgroundColor: "rgba(156,163,175,0.9)",
-                            cursor: "nwse-resize",
-                            zIndex: 11, // 가장 위에 오도록
-                          }}
-                        />
 
-                        <div
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                          }}
-                        >
-                          {renderStep6SectionVisual(shape.meta || {})}
-                        </div>
-                      </div>
-                    ))}
+                          return (
+                              <div key={block.id} style={{ position: 'relative' }}>
+                                  {/* 블록 제거 버튼 */}
+                                  <button
+                                      type="button"
+                                      onClick={() => handleRemoveBlock(page.id, block.id)}
+                                      style={{
+                                          position: "absolute",
+                                          top: "-15px",
+                                          right: "0px",
+                                          zIndex: 10,
+                                          border: "1px solid #fca5a5",
+                                          padding: "2px 6px",
+                                          borderRadius: "999px",
+                                          fontSize: "10px",
+                                          backgroundColor: "#fee2e2",
+                                          cursor: "pointer",
+                                          color: "#b91c1c",
+                                      }}
+                                  >
+                                      ✕ 섹션 제거
+                                  </button>
+                                  
+                                  <GroupSection
+                                      groupName={groupName}
+                                      groupData={groupData}
+                                      config={block.data.config}
+                                      // 섹션 텍스트/캡션 변경 시 바로 data.config 업데이트
+                                      onChangeConfig={(newConfig) => handleUpdateBlockData(page.id, block.id, { data: { ...block.data, config: newConfig }})}
+                                      // 섹션 설정 버튼 클릭 시 모달 열기
+                                      onEditClick={() => handleOpenConfigModal(page.id, block.id, {
+                                          ...block.data.config,
+                                          blockType: block.type // 💡 모달 구분을 위해 blockType 추가
+                                      })}
+                                  />
+                              </div>
+                          );
+                      }
+                      
+                      return null;
+                    })}
                   </div>
                 </div>
               </div>
             ))}
           </div>
         </div>
+
+        {/* 우측: 설정 패널 (변경 없음) */}
+        <div
+          style={{
+            border: "1px solid #e5e7eb",
+            borderRadius: "10px",
+            backgroundColor: "#fff",
+            padding: "10px",
+            fontSize: "11px",
+            color: "#9ca3af",
+            minHeight: "400px",
+          }}
+        >
+          {/* 여기에 향후 다른 컴포넌트의 설정 UI가 위치하게 됩니다. */}
+          <div
+            style={{
+              fontSize: "12px",
+              fontWeight: 700,
+              marginBottom: "8px",
+              color: "#4b5563",
+            }}
+          >
+            ⚙️ 컴포넌트 설정 패널
+          </div>
+          <div>
+            (각 섹션 컴포넌트의 '⚙️ 설정' 버튼을 눌러 설정을 변경하세요.)
+          </div>
+        </div>
       </div>
+
+      {/* OverallSummaryConfigModal 렌더링 */}
+      {editingBlockLocation?.blockId && isConfigModalOpen && configToEdit.blockType === 'overall_summary' && (
+        <OverallSummaryConfigModal
+            isOpen={isConfigModalOpen}
+            onClose={() => setIsConfigModalOpen(false)}
+            initialConfig={configToEdit}
+            roundName={calc?.name || headerTitle}
+            onSave={handleSaveSectionConfig}
+        />
+      )}
+
+      {/* 💡 GroupConfigModal 렌더링 */}
+      {editingBlockLocation?.blockId && isConfigModalOpen && configToEdit.blockType === 'group_section' && (
+        <GroupConfigModal
+            isOpen={isConfigModalOpen}
+            onClose={() => setIsConfigModalOpen(false)}
+            initialConfig={configToEdit}
+            groupName={configToEdit.groupName} // GroupConfigModal에 groupName 전달
+            onSave={handleSaveSectionConfig}
+        />
+      )}
 
       <ReportPreviewModal
         open={isPreviewOpen}
@@ -1879,3 +1492,5 @@ export default function ReportEditorPage() {
     </div>
   );
 }
+
+export default ReportEditorPage;

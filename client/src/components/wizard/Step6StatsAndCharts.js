@@ -907,12 +907,17 @@ export default function Step6StatsAndCharts({
   // ✅ 스타일 설정 (실제 반영되는 값)
   const [styleConfig, setStyleConfig] = useState(defaultStyleConfig);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
-
+  const [sectionTitle, setSectionTitle] = useState(
+    "지원분야별 통계 · 그래프"
+  );
+  
   // ✅ Step6 계산 저장/불러오기 상태
   const [isSavingCalc, setIsSavingCalc] = useState(false);
   const [isLoadingCalc, setIsLoadingCalc] = useState(false);
   const [calcStatus, setCalcStatus] = useState("");
   const [hasLoadedCalc, setHasLoadedCalc] = useState(false);
+  // ✅ 섹션 타이틀 (전형별로 저장)
+
 
   const {
     barSize,
@@ -1424,6 +1429,7 @@ export default function Step6StatsAndCharts({
       includedFieldsByGroup,
       groupOrder,
       openGroups,
+      sectionTitle,        // 🔹 여기 추가
     },
     stats: {
       crossGroupSummary,
@@ -1505,6 +1511,9 @@ export default function Step6StatsAndCharts({
           if (config.openGroups) {
             setOpenGroups(config.openGroups);
           }
+          if (config.sectionTitle) {
+            setSectionTitle(config.sectionTitle);   // 🔹 여기 한 줄
+          }
         }
 
         setCalcStatus("이 전형의 저장된 Step6 설정을 불러왔습니다.");
@@ -1535,7 +1544,31 @@ export default function Step6StatsAndCharts({
 
   return (
     <div style={{ position: "relative" }}>
-      <h2>6. 지원분야별 통계 · 그래프</h2>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          marginBottom: "4px",
+          flexWrap: "wrap",
+        }}
+      >
+        <h2 style={{ margin: 0 }}>{sectionTitle}</h2>
+        <input
+          type="text"
+          value={sectionTitle}
+          onChange={(e) => setSectionTitle(e.target.value)}
+          placeholder="섹션 제목을 입력하세요"
+          style={{
+            fontSize: "12px",
+            padding: "4px 8px",
+            borderRadius: "999px",
+            border: "1px solid #ccc",
+            minWidth: "220px",
+          }}
+        />
+      </div>
+
       {isDownloadingAll && (
         <LoadingSpinner message="전체 레포트 일괄 다운로드 준비 중..." />
       )}
