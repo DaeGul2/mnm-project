@@ -1,3 +1,4 @@
+// src/components/wizard/Step6StatsAndCharts.js
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import html2canvas from "html2canvas";
 import {
@@ -22,9 +23,9 @@ import {
 import { makeReportPDF } from "../../utils/MakeReportPDF"; // 🔹 추가
 
 const COLORS = {
-  primary: "#1976d2",   // 합격: 파란색
+  primary: "#1976d2", // 합격: 파란색
   secondary: "#8b1a3d", // 불합격: 버건디색
-  muted: "#90a4ae",     // 회청색 (보조용)
+  muted: "#90a4ae", // 회청색 (보조용)
 };
 
 // ✅ 스타일 기본값 (표/그래프 관련 설정 한 번에 관리)
@@ -35,14 +36,19 @@ const defaultStyleConfig = {
   tableHeaderBold: true,
   tableHeaderBg: "#f5f5f5",
   tableUseZebra: true,
-  zebraRowColor: "#edf2ff",      // 지브라 행 배경 (더 진하게)
-  zebraBorderColor: "#b0b7c9",   // 지브라 세로줄 색 (더 선명)
+  zebraRowColor: "#edf2ff", // 지브라 행 배경 (더 진하게)
+  zebraBorderColor: "#b0b7c9", // 지브라 세로줄 색 (더 선명)
   showCartesianGrid: true,
   showLegend: true,
   chartHeight: 260,
   labelFontSize: 11,
   tableNumericAlign: "right",
 };
+
+// 🔹 Step6 화면에서 한 "페이지"당 허용할 대략적인 총 높이(px)
+const PAGE_HEIGHT_LIMIT_PX = 1200;
+// 🔹 상단 제목/버튼/여백 등으로 잡아먹는 대략적인 높이(px)
+const HEADER_RESERVE_PX = 260;
 
 // ✅ html2canvas로 만든 캔버스에서 실제 내용만 남기고 투명 여백 제거
 function cropCanvasToContent(canvas) {
@@ -97,7 +103,6 @@ function cropCanvasToContent(canvas) {
   return cropped;
 }
 
-
 function isNumericLike(value) {
   if (value === null || value === undefined) return false;
   const s = String(value).trim();
@@ -136,7 +141,9 @@ function CopyAsImageButton({ targetRef, label = "클립보드 복사" }) {
         try {
           const item = new ClipboardItemCtor({ [blob.type]: blob });
           await clipboard.write([item]);
-          alert("이미지 형태로 클립보드에 복사했습니다. (Ctrl+V로 붙여넣기)");
+          alert(
+            "이미지 형태로 클립보드에 복사했습니다. (Ctrl+V로 붙여넣기)"
+          );
         } catch (err) {
           console.error(err);
           const url = URL.createObjectURL(blob);
@@ -195,7 +202,7 @@ function CopyableSection({
         id: sectionId,
         title,
         type: sectionType || "표",
-        // ✅ 이제 캡쳐/다운로드에는 "내용 영역"만 사용
+        // ✅ 캡쳐/다운로드에는 "내용 영역" 사용
         ref: contentRef,
       });
     }
@@ -236,13 +243,10 @@ function CopyableSection({
         </div>
       </div>
       {/* ✅ 여기부터가 실제 캡쳐 대상 (그래프/표 자체) */}
-      <div ref={contentRef}>
-        {children}
-      </div>
+      <div ref={contentRef}>{children}</div>
     </div>
   );
 }
-
 
 // 간단한 통계 계산 유틸
 function mean(arr) {
@@ -291,7 +295,7 @@ function correlation(xArr, yArr) {
 
   const stdX = Math.sqrt(sx / n);
   const stdY = Math.sqrt(sy / n);
-  const c = (cov / n) / (stdX * stdY);
+  const c = cov / n / (stdX * stdY);
   return c;
 }
 
@@ -663,9 +667,7 @@ function Step6ChartToolbox({ config, onApply }) {
                       ? "1px solid #356ac3"
                       : "1px solid #ccc",
                   backgroundColor:
-                    draft.tableNumericAlign === align
-                      ? "#e3f2fd"
-                      : "#fff",
+                    draft.tableNumericAlign === align ? "#e3f2fd" : "#fff",
                   cursor: "pointer",
                 }}
               >
@@ -917,6 +919,13 @@ export default function Step6StatsAndCharts({
   const [isReportMode, setIsReportMode] = useState(false);
   const reportRef = useRef(null);
 
+  // 🔹 PDF 생성 시, UI 페이지네이션 무시하고 전체 페이지를 한 번에 렌더링
+  const [isPrintAllPages, setIsPrintAllPages] = useState(false);
+
+  // 🔹 페이지 목록 & 현재 페이지 인덱스
+  const [pages, setPages] = useState([]);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
+
   // ✅ Step6 계산 저장/불러오기 상태
   const [isSavingCalc, setIsSavingCalc] = useState(false);
   const [isLoadingCalc, setIsLoadingCalc] = useState(false);
@@ -924,7 +933,6 @@ export default function Step6StatsAndCharts({
   const [calcStatus, setCalcStatus] = useState("");
   const [hasLoadedCalc, setHasLoadedCalc] = useState(false);
   // ✅ 섹션 타이틀 (전형별로 저장)
-
 
   const {
     barSize,
@@ -1028,6 +1036,7 @@ export default function Step6StatsAndCharts({
   const groupRefs = useRef({});
   const groupSectionRefs = useRef({}); // 각 지원분야별 섹션 참조 저장
   const globalSectionRefs = useRef({}); // 개요/전역 섹션 참조 저장
+  const overviewRef = useRef(null);
 
   useEffect(() => {
     setIncludedFieldsByGroup(initialIncludedFields);
@@ -1161,8 +1170,7 @@ export default function Step6StatsAndCharts({
       }
 
       // 전형 합격률
-      const passRate =
-        n > 0 ? (passCandidates.length / n) * 100 : null;
+      const passRate = n > 0 ? (passCandidates.length / n) * 100 : null;
 
       // 불합격자 기준 최고점
       const bestFailTotal =
@@ -1170,16 +1178,16 @@ export default function Step6StatsAndCharts({
 
       // ✅ Editor에서 그대로 재사용할 "각 분야별 요약 통계" 스냅샷
       const summaryStats = {
-        n,              // 통계 대상 인원
-        avgTotal,       // 총점 평균
-        medianTotal,    // 총점 중앙값
-        stdTotal,       // 총점 표준편차
-        maxTotal,       // 최고점
-        minTotal,       // 최저점
-        cutoff,         // 합격자 기준 최저점(커트라인)
-        cutoffPercent,  // 합격컷 상위 %
-        passRate,       // 전형 합격률(%)
-        bestFailTotal,  // 불합격자 기준 최고점
+        n, // 통계 대상 인원
+        avgTotal, // 총점 평균
+        medianTotal, // 총점 중앙값
+        stdTotal, // 총점 표준편차
+        maxTotal, // 최고점
+        minTotal, // 최저점
+        cutoff, // 합격자 기준 최저점(커트라인)
+        cutoffPercent, // 합격컷 상위 %
+        passRate, // 전형 합격률(%)
+        bestFailTotal, // 불합격자 기준 최고점
       };
 
       // 전형 결과별 합/불 총점 평균
@@ -1263,7 +1271,7 @@ export default function Step6StatsAndCharts({
       }
 
       result[groupName] = {
-        summaryStats,       // ✅ 새로 추가
+        summaryStats, // ✅ 새로 추가
         phaseTotalAvgData,
         fieldStats,
         finalCompareData,
@@ -1272,7 +1280,6 @@ export default function Step6StatsAndCharts({
 
     return result;
   }, [groupData, includedFieldsByGroup]);
-
 
   const handleToggleField = (groupName, field) => () => {
     setIncludedFieldsByGroup((prev) => {
@@ -1321,6 +1328,74 @@ export default function Step6StatsAndCharts({
   // ✅ 현재 화면에서 사용할 실제 순서
   const orderedGroupNames =
     groupOrder && groupOrder.length ? groupOrder : Object.keys(groupData);
+
+  // 🔹 Step6 페이지 자동 분할 (DOM 높이 기반)
+  useEffect(() => {
+    const names = orderedGroupNames;
+    if (!names.length) {
+      setPages([
+        {
+          key: "overview-only",
+          showOverview: true,
+          groupNames: [],
+        },
+      ]);
+      setCurrentPageIndex(0);
+      return;
+    }
+
+    const newPages = [];
+
+    // 첫 페이지: 개요 + 그룹들
+    let currentPage = {
+      key: "page-1",
+      showOverview: true,
+      groupNames: [],
+    };
+
+    let usedHeight =
+      HEADER_RESERVE_PX + (overviewRef.current?.offsetHeight || 0);
+
+    names.forEach((groupName, idx) => {
+      const el = groupRefs.current[groupName];
+      const h = el?.offsetHeight || 500;
+
+      // 이 그룹을 넣으면 한도 초과 → 새 페이지 생성
+      if (
+        currentPage.groupNames.length > 0 &&
+        usedHeight + h > PAGE_HEIGHT_LIMIT_PX
+      ) {
+        newPages.push(currentPage);
+        currentPage = {
+          key: `page-${newPages.length + 1}`,
+          showOverview: false,
+          groupNames: [],
+        };
+        usedHeight = HEADER_RESERVE_PX;
+      }
+
+      currentPage.groupNames.push(groupName);
+      usedHeight += h;
+
+      if (idx === names.length - 1) {
+        newPages.push(currentPage);
+      }
+    });
+
+    setPages(newPages);
+    setCurrentPageIndex(0);
+  }, [orderedGroupNames, groupData]);
+
+  const totalPages = pages.length || 1;
+  const safePageIndex = Math.min(currentPageIndex, totalPages - 1);
+  const currentPage = pages[safePageIndex] || {
+    showOverview: true,
+    groupNames: [],
+  };
+  const currentPageGroupNames = currentPage.groupNames || [];
+  const visibleGroupNames = isPrintAllPages
+    ? orderedGroupNames
+    : currentPageGroupNames;
 
   // 지원분야별 섹션 일괄 다운로드
   const handleDownloadAllSections = async (groupName) => {
@@ -1428,8 +1503,9 @@ export default function Step6StatsAndCharts({
     }
   };
 
-  // 🔹 PDF "보고서화" 핸들러
-  const handleMakeReportPdf = () => {
+  // 🔹 PDF "보고서화" 핸들러 (전체 페이지 기준)
+  // 🔹 Step6의 "현재 페이지"들을 순서대로 캡쳐해서 PDF로 만드는 핸들러
+  const handleMakeReportPdf = async () => {
     const node = reportRef.current;
     if (!node) {
       alert("PDF로 만들 영역을 찾을 수 없습니다.");
@@ -1446,21 +1522,52 @@ export default function Step6StatsAndCharts({
       "전형"
     )}_Step6_통계보고서.pdf`;
 
-    setIsReportMode(true);
-    setIsMakingPdf(true); // 🔹 추가
+    if (!totalPages || totalPages < 1) {
+      alert("표시할 페이지가 없습니다.");
+      return;
+    }
 
-    // 버튼/입력 숨긴 뒤 DOM 갱신되고 나서 캡처
-    setTimeout(async () => {
-      try {
-        await makeReportPDF(node, { fileName, marginMm: 8 });
-      } catch (err) {
-        console.error(err);
-        alert("PDF 생성 중 오류가 발생했습니다.");
-      } finally {
-        setIsReportMode(false);
-        setIsMakingPdf(false); // 🔹 추가
+    // 보고서 모드: 버튼 / 인풋 / 툴바 숨김
+    setIsReportMode(true);
+    setIsMakingPdf(true);
+
+    // 원래 보고 있던 페이지 기억
+    const prevPageIndex = currentPageIndex;
+
+    try {
+      const canvases = [];
+
+      for (let i = 0; i < totalPages; i += 1) {
+        // 각 페이지로 이동
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => {
+          setCurrentPageIndex(i);
+          // 리렌더 + 레이아웃 반영 기다리기
+          setTimeout(resolve, 300);
+        });
+
+        // 현재 페이지 전체를 캡쳐
+        // eslint-disable-next-line no-await-in-loop
+        const canvas = await html2canvas(node, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+        });
+
+        canvases.push(canvas);
       }
-    }, 200);
+
+      // 페이지별 canvas 배열을 PDF로 합치기
+      await makeReportPDF(canvases, { fileName, marginMm: 8 });
+    } catch (err) {
+      console.error(err);
+      alert("PDF 생성 중 오류가 발생했습니다.");
+    } finally {
+      // 원래 페이지로 복귀 + 모드 해제
+      setCurrentPageIndex(prevPageIndex);
+      setIsReportMode(false);
+      setIsMakingPdf(false);
+    }
   };
 
 
@@ -1471,7 +1578,7 @@ export default function Step6StatsAndCharts({
       includedFieldsByGroup,
       groupOrder,
       openGroups,
-      sectionTitle,        // 🔹 여기 추가
+      sectionTitle, // 🔹 여기 추가
     },
     stats: {
       crossGroupSummary,
@@ -1554,7 +1661,7 @@ export default function Step6StatsAndCharts({
             setOpenGroups(config.openGroups);
           }
           if (config.sectionTitle) {
-            setSectionTitle(config.sectionTitle);   // 🔹 여기 한 줄
+            setSectionTitle(config.sectionTitle);
           }
         }
 
@@ -1563,7 +1670,9 @@ export default function Step6StatsAndCharts({
         // 404면 "저장 없음"이니 조용히 패스
         const status = err?.response?.status;
         if (status === 404) {
-          setCalcStatus("저장된 Step6 계산 결과가 없어 현재 데이터로 새로 계산 중입니다.");
+          setCalcStatus(
+            "저장된 Step6 계산 결과가 없어 현재 데이터로 새로 계산 중입니다."
+          );
         } else {
           console.error("getRoundCalc error:", err);
           setCalcStatus("Step6 계산 결과 불러오는 중 오류가 발생했습니다.");
@@ -1575,17 +1684,10 @@ export default function Step6StatsAndCharts({
     };
 
     load();
-  }, [
-    roundId,
-    projectToken,
-    hasLoadedCalc,
-    rows,
-    supportField,
-    supportGroups,
-  ]);
+  }, [roundId, projectToken, hasLoadedCalc, rows, supportField, supportGroups]);
 
   return (
-    <div style={{ position: "relative" }} ref={reportRef}>
+    <div style={{ position: "relative" }}>
       {(isDownloadingAll || isMakingPdf) && (
         <LoadingSpinner
           message={
@@ -1596,109 +1698,47 @@ export default function Step6StatsAndCharts({
         />
       )}
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "8px",
-          marginBottom: "4px",
-          flexWrap: "wrap",
-        }}
-      >
+      {/* 📌 PDF 캡처 대상은 여기부터 */}
+      <div ref={reportRef}>
         <div
           style={{
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: "8px",
+            marginBottom: "4px",
             flexWrap: "wrap",
           }}
         >
-          <h2 style={{ margin: 0 }}>{sectionTitle}</h2>
-          {!isReportMode && (
-            <input
-              type="text"
-              value={sectionTitle}
-              onChange={(e) => setSectionTitle(e.target.value)}
-              placeholder="섹션 제목을 입력하세요"
-              style={{
-                fontSize: "12px",
-                padding: "4px 8px",
-                borderRadius: "999px",
-                border: "1px solid #ccc",
-                minWidth: "220px",
-              }}
-            />
-          )}
-        </div>
-        {!isReportMode && (
-          <button
-            type="button"
-            onClick={handleMakeReportPdf}
-            style={{
-              padding: "6px 12px",
-              borderRadius: "999px",
-              border: "1px solid #1976d2",
-              backgroundColor: "#1976d2",
-              color: "#fff",
-              fontSize: "12px",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-            }}
-          >
-            📄 보고서화하기
-          </button>
-        )}
-      </div>
-
-      <div
-        style={{
-          marginBottom: "8px",
-          display: "flex",
-          justifyContent: "space-between",
-          gap: "8px",
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={{ fontSize: "11px", color: "#666", minHeight: "16px" }}>
-          {isLoadingCalc
-            ? "저장된 Step6 계산 결과를 불러오는 중입니다..."
-            : calcStatus}
-        </div>
-        {!isReportMode && (
           <div
             style={{
               display: "flex",
+              alignItems: "center",
               gap: "8px",
+              flexWrap: "wrap",
             }}
           >
+            <h2 style={{ margin: 0 }}>{sectionTitle}</h2>
+            {!isReportMode && (
+              <input
+                type="text"
+                value={sectionTitle}
+                onChange={(e) => setSectionTitle(e.target.value)}
+                placeholder="섹션 제목을 입력하세요"
+                style={{
+                  fontSize: "12px",
+                  padding: "4px 8px",
+                  borderRadius: "999px",
+                  border: "1px solid #ccc",
+                  minWidth: "220px",
+                }}
+              />
+            )}
+          </div>
+          {!isReportMode && (
             <button
               type="button"
-              onClick={handleSaveCalc}
-              disabled={!roundId || !projectToken || isSavingCalc}
-              style={{
-                padding: "6px 12px",
-                borderRadius: "999px",
-                border: "1px solid #555",
-                backgroundColor: isSavingCalc ? "#eee" : "#fff",
-                color: "#333",
-                fontSize: "12px",
-                cursor:
-                  !roundId || !projectToken || isSavingCalc
-                    ? "not-allowed"
-                    : "pointer",
-                opacity:
-                  !roundId || !projectToken || isSavingCalc
-                    ? 0.6
-                    : 1,
-              }}
-            >
-              💾 Step6 계산 저장
-            </button>
-            <button
-              type="button"
-              onClick={handleDownloadWholeReport}
+              onClick={handleMakeReportPdf}
               style={{
                 padding: "6px 12px",
                 borderRadius: "999px",
@@ -1707,512 +1747,845 @@ export default function Step6StatsAndCharts({
                 color: "#fff",
                 fontSize: "12px",
                 cursor: "pointer",
+                whiteSpace: "nowrap",
               }}
             >
-              ⬇ 레포트 전체 일괄 다운로드
+              📄 보고서화하기
+            </button>
+          )}
+        </div>
+
+        <div
+          style={{
+            marginBottom: "8px",
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "8px",
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ fontSize: "11px", color: "#666", minHeight: "16px" }}>
+            {isLoadingCalc
+              ? "저장된 Step6 계산 결과를 불러오는 중입니다..."
+              : calcStatus}
+          </div>
+          {!isReportMode && (
+            <div
+              style={{
+                display: "flex",
+                gap: "8px",
+              }}
+            >
+              <button
+                type="button"
+                onClick={handleSaveCalc}
+                disabled={!roundId || !projectToken || isSavingCalc}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: "999px",
+                  border: "1px solid #555",
+                  backgroundColor: isSavingCalc ? "#eee" : "#fff",
+                  color: "#333",
+                  fontSize: "12px",
+                  cursor:
+                    !roundId || !projectToken || isSavingCalc
+                      ? "not-allowed"
+                      : "pointer",
+                  opacity:
+                    !roundId || !projectToken || isSavingCalc ? 0.6 : 1,
+                }}
+              >
+                💾 Step6 계산 저장
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadWholeReport}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: "999px",
+                  border: "1px solid #1976d2",
+                  backgroundColor: "#1976d2",
+                  color: "#fff",
+                  fontSize: "12px",
+                  cursor: "pointer",
+                }}
+              >
+                ⬇ 레포트 전체 일괄 다운로드
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 페이지네이션 (PDF 모드/전체 렌더 모드에서는 숨김) */}
+        {totalPages > 1 && !isReportMode && !isPrintAllPages && (
+          <div
+            style={{
+              marginBottom: "12px",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: "8px",
+              fontSize: "12px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() =>
+                setCurrentPageIndex((idx) => Math.max(0, idx - 1))
+              }
+              disabled={safePageIndex === 0}
+              style={{
+                padding: "4px 10px",
+                borderRadius: "999px",
+                border: "1px solid #ccc",
+                backgroundColor: safePageIndex === 0 ? "#f5f5f5" : "#fff",
+                cursor: safePageIndex === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              ◀ 이전
+            </button>
+            <span>
+              페이지 {safePageIndex + 1} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setCurrentPageIndex((idx) =>
+                  Math.min(totalPages - 1, idx + 1)
+                )
+              }
+              disabled={safePageIndex === totalPages - 1}
+              style={{
+                padding: "4px 10px",
+                borderRadius: "999px",
+                border: "1px solid #ccc",
+                backgroundColor:
+                  safePageIndex === totalPages - 1 ? "#f5f5f5" : "#fff",
+                cursor:
+                  safePageIndex === totalPages - 1
+                    ? "not-allowed"
+                    : "pointer",
+              }}
+            >
+              다음 ▶
             </button>
           </div>
         )}
-      </div>
 
+        {/* ✅ Step 6 전용 floating 도구 모음 (이제 '적용' 눌러야 실제 반영) */}
+        {!isReportMode && (
+          <Step6ChartToolbox config={styleConfig} onApply={setStyleConfig} />
+        )}
 
-      {/* ✅ Step 6 전용 floating 도구 모음 (이제 '적용' 눌러야 실제 반영) */}
-      {!isReportMode && (
-        <Step6ChartToolbox config={styleConfig} onApply={setStyleConfig} />
-      )}
+        {/* 개요(지원분야 간 요약 비교) - PDF모드/전체 렌더에서는 항상 출력 */}
+        {(isPrintAllPages || currentPage.showOverview) && (
+          <div ref={overviewRef}>
+            {/* 지원분야 간 요약 비교 표 (전역) */}
+            <CopyableSection
+              title="지원분야 간 요약 비교"
+              onRegisterSection={registerOverviewSection}
+              sectionId="00_crossGroupSummary"
+              sectionType="표"
+              hideToolbar={isReportMode}
+            >
+              <div
+                style={{
+                  width: `${tableWidthScale}%`,
+                  maxWidth: "100%",
+                  overflowX: "auto",
+                  resize: "horizontal",
+                  display: "inline-block",
+                }}
+              >
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: "13px",
+                  }}
+                >
+                  <thead>
+                    <tr>
+                      {[
+                        "지원분야(통합)",
+                        "통계 대상 인원",
+                        "전형 합격률(%)",
+                        "총점 평균",
+                        "전형 합격 커트라인 점수",
+                        "합격컷 상위 %",
+                      ].map((label, idx) => (
+                        <th
+                          key={label}
+                          style={{
+                            borderBottom: `1px solid ${zebraBorderColor}`,
+                            textAlign:
+                              idx === 0 ? "left" : tableNumericAlign,
+                            padding: "4px 8px",
+                            fontWeight: tableHeaderBold ? 600 : 400,
+                            backgroundColor: tableHeaderBg,
+                            borderRight:
+                              tableUseZebra && idx !== 5
+                                ? `1px solid ${zebraBorderColor}`
+                                : "none",
+                          }}
+                        >
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orderedGroupNames.map((groupName, rowIndex) => {
+                      const row = crossGroupSummary.find(
+                        (r) => r.groupName === groupName
+                      );
+                      if (!row) return null;
+                      const isDragging = draggingGroup === groupName;
+                      return (
+                        <tr
+                          key={groupName}
+                          draggable
+                          onDragStart={(e) =>
+                            handleDragStart(e, groupName)
+                          }
+                          onDragOver={(e) =>
+                            handleDragOver(e, groupName)
+                          }
+                          onDrop={(e) => handleDrop(e, groupName)}
+                          style={{
+                            cursor: "move",
+                            backgroundColor: isDragging
+                              ? "#e3f2fd"
+                              : tableUseZebra && rowIndex % 2 === 1
+                                ? zebraRowColor
+                                : "transparent",
+                          }}
+                        >
+                          <td
+                            style={{
+                              borderBottom: "1px solid #eee",
+                              padding: "4px 8px",
+                              borderRight: tableUseZebra
+                                ? `1px solid ${zebraBorderColor}`
+                                : "none",
+                            }}
+                          >
+                            {row.groupName}
+                          </td>
+                          <td
+                            style={{
+                              borderBottom: "1px solid #eee",
+                              textAlign: tableNumericAlign,
+                              padding: "4px 8px",
+                              borderRight: tableUseZebra
+                                ? `1px solid ${zebraBorderColor}`
+                                : "none",
+                            }}
+                          >
+                            {row.n}
+                          </td>
+                          <td
+                            style={{
+                              borderBottom: "1px solid #eee",
+                              textAlign: tableNumericAlign,
+                              padding: "4px 8px",
+                              borderRight: tableUseZebra
+                                ? `1px solid ${zebraBorderColor}`
+                                : "none",
+                            }}
+                          >
+                            {row.passRate !== null
+                              ? row.passRate.toFixed(1)
+                              : "-"}
+                          </td>
+                          <td
+                            style={{
+                              borderBottom: "1px solid #eee",
+                              textAlign: tableNumericAlign,
+                              padding: "4px 8px",
+                              borderRight: tableUseZebra
+                                ? `1px solid ${zebraBorderColor}`
+                                : "none",
+                            }}
+                          >
+                            {row.avgTotal !== null
+                              ? row.avgTotal.toFixed(2)
+                              : "-"}
+                          </td>
+                          <td
+                            style={{
+                              borderBottom: "1px solid #eee",
+                              textAlign: tableNumericAlign,
+                              padding: "4px 8px",
+                              borderRight: tableUseZebra
+                                ? `1px solid ${zebraBorderColor}`
+                                : "none",
+                            }}
+                          >
+                            {row.cutoff !== null
+                              ? row.cutoff.toFixed(2)
+                              : "-"}
+                          </td>
+                          <td
+                            style={{
+                              borderBottom: "1px solid #eee",
+                              textAlign: tableNumericAlign,
+                              padding: "4px 8px",
+                            }}
+                          >
+                            {row.cutoffPercent !== null
+                              ? row.cutoffPercent.toFixed(1)
+                              : "-"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CopyableSection>
+          </div>
+        )}
 
-      {/* 지원분야 간 요약 비교 표 (전역) */}
-      <CopyableSection
-        title="지원분야 간 요약 비교"
-        onRegisterSection={registerOverviewSection}
-        sectionId="00_crossGroupSummary"
-        sectionType="표"
-        hideToolbar={isReportMode}
-      >
-        <div
-          style={{
-            width: `${tableWidthScale}%`,
-            maxWidth: "100%",
-            overflowX: "auto",
-            resize: "horizontal",
-            display: "inline-block",
-          }}
-        >
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: "13px",
-            }}
-          >
-            <thead>
-              <tr>
-                {[
-                  "지원분야(통합)",
-                  "통계 대상 인원",
-                  "전형 합격률(%)",
-                  "총점 평균",
-                  "전형 합격 커트라인 점수",
-                  "합격컷 상위 %",
-                ].map((label, idx) => (
-                  <th
-                    key={label}
-                    style={{
-                      borderBottom: `1px solid ${zebraBorderColor}`,
-                      textAlign: idx === 0 ? "left" : tableNumericAlign,
-                      padding: "4px 8px",
-                      fontWeight: tableHeaderBold ? 600 : 400,
-                      backgroundColor: tableHeaderBg,
-                      borderRight:
-                        tableUseZebra && idx !== 5
-                          ? `1px solid ${zebraBorderColor}`
-                          : "none",
-                    }}
-                  >
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {orderedGroupNames.map((groupName, rowIndex) => {
-                const row = crossGroupSummary.find(
-                  (r) => r.groupName === groupName
-                );
-                if (!row) return null;
-                const isDragging = draggingGroup === groupName;
-                return (
-                  <tr
-                    key={groupName}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, groupName)}
-                    onDragOver={(e) => handleDragOver(e, groupName)}
-                    onDrop={(e) => handleDrop(e, groupName)}
-                    style={{
-                      cursor: "move",
-                      backgroundColor: isDragging
-                        ? "#e3f2fd"
-                        : tableUseZebra && rowIndex % 2 === 1
-                          ? zebraRowColor
-                          : "transparent",
-                    }}
-                  >
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        padding: "4px 8px",
-                        borderRight: tableUseZebra
-                          ? `1px solid ${zebraBorderColor}`
-                          : "none",
-                      }}
-                    >
-                      {row.groupName}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        textAlign: tableNumericAlign,
-                        padding: "4px 8px",
-                        borderRight: tableUseZebra
-                          ? `1px solid ${zebraBorderColor}`
-                          : "none",
-                      }}
-                    >
-                      {row.n}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        textAlign: tableNumericAlign,
-                        padding: "4px 8px",
-                        borderRight: tableUseZebra
-                          ? `1px solid ${zebraBorderColor}`
-                          : "none",
-                      }}
-                    >
-                      {row.passRate !== null
-                        ? row.passRate.toFixed(1)
-                        : "-"}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        textAlign: tableNumericAlign,
-                        padding: "4px 8px",
-                        borderRight: tableUseZebra
-                          ? `1px solid ${zebraBorderColor}`
-                          : "none",
-                      }}
-                    >
-                      {row.avgTotal !== null
-                        ? row.avgTotal.toFixed(2)
-                        : "-"}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        textAlign: tableNumericAlign,
-                        padding: "4px 8px",
-                        borderRight: tableUseZebra
-                          ? `1px solid ${zebraBorderColor}`
-                          : "none",
-                      }}
-                    >
-                      {row.cutoff !== null
-                        ? row.cutoff.toFixed(2)
-                        : "-"}
-                    </td>
-                    <td
-                      style={{
-                        borderBottom: "1px solid #eee",
-                        textAlign: tableNumericAlign,
-                        padding: "4px 8px",
-                      }}
-                    >
-                      {row.cutoffPercent !== null
-                        ? row.cutoffPercent.toFixed(1)
-                        : "-"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </CopyableSection>
+        {/* 각 지원분야별 아코디언 (현재 페이지 / 혹은 전체) */}
+        {visibleGroupNames.map((groupName) => {
+          const group = groupData[groupName];
+          if (!group) return null;
+          const { candidates } = group;
 
-      {/* 각 지원분야별 아코디언 */}
-      {orderedGroupNames.map((groupName) => {
-        const group = groupData[groupName];
-        if (!group) return null;
-        const { candidates } = group;
+          const includedFields = includedFieldsByGroup[groupName] || [];
 
-        const includedFields = includedFieldsByGroup[groupName] || [];
+          const totalScores = candidates
+            .map((c) => c.totalScore)
+            .filter((v) => v !== null);
 
-        const totalScores = candidates
-          .map((c) => c.totalScore)
-          .filter((v) => v !== null);
+          const passCandidates = candidates.filter(
+            (c) => c.phaseRole === "합격"
+          );
+          const failCandidates = candidates.filter(
+            (c) => c.phaseRole === "불합격"
+          );
 
-        const passCandidates = candidates.filter(
-          (c) => c.phaseRole === "합격"
-        );
-        const failCandidates = candidates.filter(
-          (c) => c.phaseRole === "불합격"
-        );
+          const passScores = passCandidates
+            .map((c) => c.totalScore)
+            .filter((v) => v !== null);
+          const failScores = failCandidates
+            .map((c) => c.totalScore)
+            .filter((v) => v !== null);
 
-        const passScores = passCandidates
-          .map((c) => c.totalScore)
-          .filter((v) => v !== null);
-        const failScores = failCandidates
-          .map((c) => c.totalScore)
-          .filter((v) => v !== null);
+          const totalAvg = mean(totalScores);
+          const totalStd = stdDev(totalScores);
+          const totalMed = median(totalScores);
 
-        const totalAvg = mean(totalScores);
-        const totalStd = stdDev(totalScores);
-        const totalMed = median(totalScores);
-
-        const cutoff =
-          passScores.length > 0 ? Math.min(...passScores) : null;
-        let cutoffPercent = null;
-        if (cutoff !== null && totalScores.length) {
-          const nAbove = totalScores.filter((s) => s >= cutoff).length;
-          cutoffPercent = (nAbove / totalScores.length) * 100;
-        }
-
-        const groupTotal = candidates.length;
-        const groupPassRate =
-          groupTotal > 0 ? (passCandidates.length / groupTotal) * 100 : null;
-
-        const phaseTotalAvgData = [
-          {
-            phase: "합격",
-            avg: passScores.length > 0 ? mean(passScores) : null,
-          },
-          {
-            phase: "불합격",
-            avg: failScores.length > 0 ? mean(failScores) : null,
-          },
-        ].filter((d) => d.avg !== null);
-
-        const fieldStats = includedFields.map((field) => {
-          const passFieldScores = passCandidates
-            .map((c) => c.evalScores[field])
-            .filter((v) => v !== null && v !== undefined);
-
-          const failFieldScores = failCandidates
-            .map((c) => c.evalScores[field])
-            .filter((v) => v !== null && v !== undefined);
-
-          const corrX = [];
-          const corrY = [];
-          candidates.forEach((c) => {
-            const v = c.evalScores[field];
-            if (v === null || v === undefined || !isNumericLike(v)) {
-              return;
-            }
-            if (c.phaseRole === "합격") {
-              corrX.push(Number(v));
-              corrY.push(1);
-            } else if (c.phaseRole === "불합격") {
-              corrX.push(Number(v));
-              corrY.push(0);
-            }
-          });
-
-          const corrVal = corrX.length >= 2 ? correlation(corrX, corrY) : null;
-
-          return {
-            field,
-            passAvg:
-              passFieldScores.length > 0 ? mean(passFieldScores) : null,
-            failAvg:
-              failFieldScores.length > 0 ? mean(failFieldScores) : null,
-            corr: corrVal,
-          };
-        });
-
-        const fieldChartData = fieldStats.map((fs) => ({
-          field: fs.field,
-          passAvg: fs.passAvg,
-          failAvg: fs.failAvg,
-        }));
-
-        const finalPass = candidates.filter((c) => c.finalRole === "합격");
-        const finalFailPhasePass = candidates.filter(
-          (c) => c.finalRole === "불합격" && c.phaseRole === "합격"
-        );
-
-        const finalCompareData = [];
-        const finalPassScores = finalPass
-          .map((c) => c.totalScore)
-          .filter((v) => v !== null);
-        const finalFailPhasePassScores = finalFailPhasePass
-          .map((c) => c.totalScore)
-          .filter((v) => v !== null);
-
-        if (finalPassScores.length > 0) {
-          finalCompareData.push({
-            group: "최종 합격",
-            avg: mean(finalPassScores),
-          });
-        }
-        if (finalFailPhasePassScores.length > 0) {
-          finalCompareData.push({
-            group: "최종 불합격(전형 합격)",
-            avg: mean(finalFailPhasePassScores),
-          });
-        }
-
-        const open = openGroups[groupName] ?? true;
-
-        const availableFieldsSet = new Set();
-        candidates.forEach((c) => {
-          Object.keys(c.evalScores).forEach((f) => availableFieldsSet.add(f));
-        });
-        const availableFields = Array.from(availableFieldsSet);
-
-        const groupRefWrapper = {
-          get current() {
-            return groupRefs.current[groupName] || null;
-          },
-        };
-
-        const registerSectionForGroup = (info) => {
-          if (!info || !info.id) return;
-          if (!groupSectionRefs.current[groupName]) {
-            groupSectionRefs.current[groupName] = {};
+          const cutoff =
+            passScores.length > 0 ? Math.min(...passScores) : null;
+          let cutoffPercent = null;
+          if (cutoff !== null && totalScores.length) {
+            const nAbove = totalScores.filter((s) => s >= cutoff).length;
+            cutoffPercent = (nAbove / totalScores.length) * 100;
           }
-          groupSectionRefs.current[groupName][info.id] = info;
-        };
 
-        const handleDownloadAll = () => {
-          handleDownloadAllSections(groupName);
-        };
+          const groupTotal = candidates.length;
+          const groupPassRate =
+            groupTotal > 0 ? (passCandidates.length / groupTotal) * 100 : null;
 
-        return (
-          <div
-            key={groupName}
-            ref={(el) => {
-              groupRefs.current[groupName] = el;
-            }}
-            style={{
-              border: "1px solid #ddd",
-              borderRadius: "10px",
-              marginBottom: "16px",
-              backgroundColor: "#fff",
-            }}
-          >
+          const phaseTotalAvgData = [
+            {
+              phase: "합격",
+              avg: passScores.length > 0 ? mean(passScores) : null,
+            },
+            {
+              phase: "불합격",
+              avg: failScores.length > 0 ? mean(failScores) : null,
+            },
+          ].filter((d) => d.avg !== null);
+
+          const fieldStats = includedFields.map((field) => {
+            const passFieldScores = passCandidates
+              .map((c) => c.evalScores[field])
+              .filter((v) => v !== null && v !== undefined);
+
+            const failFieldScores = failCandidates
+              .map((c) => c.evalScores[field])
+              .filter((v) => v !== null && v !== undefined);
+
+            const corrX = [];
+            const corrY = [];
+            candidates.forEach((c) => {
+              const v = c.evalScores[field];
+              if (v === null || v === undefined || !isNumericLike(v)) {
+                return;
+              }
+              if (c.phaseRole === "합격") {
+                corrX.push(Number(v));
+                corrY.push(1);
+              } else if (c.phaseRole === "불합격") {
+                corrX.push(Number(v));
+                corrY.push(0);
+              }
+            });
+
+            const corrVal = corrX.length >= 2 ? correlation(corrX, corrY) : null;
+
+            return {
+              field,
+              passAvg:
+                passFieldScores.length > 0 ? mean(passFieldScores) : null,
+              failAvg:
+                failFieldScores.length > 0 ? mean(failFieldScores) : null,
+              corr: corrVal,
+            };
+          });
+
+          const fieldChartData = fieldStats.map((fs) => ({
+            field: fs.field,
+            passAvg: fs.passAvg,
+            failAvg: fs.failAvg,
+          }));
+
+          const finalPass = candidates.filter((c) => c.finalRole === "합격");
+          const finalFailPhasePass = candidates.filter(
+            (c) => c.finalRole === "불합격" && c.phaseRole === "합격"
+          );
+
+          const finalCompareData = [];
+          const finalPassScores = finalPass
+            .map((c) => c.totalScore)
+            .filter((v) => v !== null);
+          const finalFailPhasePassScores = finalFailPhasePass
+            .map((c) => c.totalScore)
+            .filter((v) => v !== null);
+
+          if (finalPassScores.length > 0) {
+            finalCompareData.push({
+              group: "최종 합격",
+              avg: mean(finalPassScores),
+            });
+          }
+          if (finalFailPhasePassScores.length > 0) {
+            finalCompareData.push({
+              group: "최종 불합격(전형 합격)",
+              avg: mean(finalFailPhasePassScores),
+            });
+          }
+
+          const open = openGroups[groupName] ?? true;
+
+          const availableFieldsSet = new Set();
+          candidates.forEach((c) => {
+            Object.keys(c.evalScores).forEach((f) => availableFieldsSet.add(f));
+          });
+          const availableFields = Array.from(availableFieldsSet);
+
+          const groupRefWrapper = {
+            get current() {
+              return groupRefs.current[groupName] || null;
+            },
+          };
+
+          const registerSectionForGroup = (info) => {
+            if (!info || !info.id) return;
+            if (!groupSectionRefs.current[groupName]) {
+              groupSectionRefs.current[groupName] = {};
+            }
+            groupSectionRefs.current[groupName][info.id] = info;
+          };
+
+          const handleDownloadAll = () => {
+            handleDownloadAllSections(groupName);
+          };
+
+          return (
             <div
+              key={groupName}
+              ref={(el) => {
+                groupRefs.current[groupName] = el;
+              }}
               style={{
-                padding: "10px 14px",
-                borderBottom: "1px solid#eee",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: "12px",
+                border: "1px solid #ddd",
+                borderRadius: "10px",
+                marginBottom: "16px",
+                backgroundColor: "#fff",
               }}
             >
               <div
                 style={{
+                  padding: "10px 14px",
+                  borderBottom: "1px solid#eee",
                   display: "flex",
+                  justifyContent: "space-between",
                   alignItems: "center",
-                  gap: "8px",
-                  cursor: "pointer",
-                  flex: 1,
+                  gap: "12px",
                 }}
-                onClick={() =>
-                  setOpenGroups((prev) => ({
-                    ...prev,
-                    [groupName]: !open,
-                  }))}
               >
-                <div>
-                  <div style={{ fontWeight: 600 }}>
-                    {groupName}{" "}
-                    <span style={{ fontWeight: 400, fontSize: "12px" }}>
-                      (통계 대상 {groupTotal}명)
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "#666",
-                      marginTop: "2px",
-                    }}
-                  >
-                    전형 합격률{" "}
-                    {groupPassRate !== null
-                      ? `${groupPassRate.toFixed(1)}%`
-                      : "-"}
-                    {cutoffPercent !== null &&
-                      ` · 합격컷 상위 ${cutoffPercent.toFixed(1)}%`}
-                  </div>
-                </div>
-                <div style={{ fontSize: "18px" }}>{open ? "▴" : "▾"}</div>
-              </div>
-
-              {!isReportMode && (
                 <div
                   style={{
                     display: "flex",
-                    gap: "8px",
                     alignItems: "center",
+                    gap: "8px",
+                    cursor: "pointer",
+                    flex: 1,
                   }}
+                  onClick={() =>
+                    setOpenGroups((prev) => ({
+                      ...prev,
+                      [groupName]: !open,
+                    }))
+                  }
                 >
-                  <CopyAsImageButton
-                    targetRef={groupRefWrapper}
-                    label="이 지원분야 전체 복사"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleDownloadAll}
+                  <div>
+                    <div style={{ fontWeight: 600 }}>
+                      {groupName}{" "}
+                      <span
+                        style={{ fontWeight: 400, fontSize: "12px" }}
+                      >
+                        (통계 대상 {groupTotal}명)
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "12px",
+                        color: "#666",
+                        marginTop: "2px",
+                      }}
+                    >
+                      전형 합격률{" "}
+                      {groupPassRate !== null
+                        ? `${groupPassRate.toFixed(1)}%`
+                        : "-"}
+                      {cutoffPercent !== null &&
+                        ` · 합격컷 상위 ${cutoffPercent.toFixed(1)}%`}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: "18px" }}>
+                    {open ? "▴" : "▾"}
+                  </div>
+                </div>
+
+                {!isReportMode && (
+                  <div
                     style={{
-                      padding: "4px 10px",
-                      borderRadius: "999px",
-                      border: "1px solid #666",
-                      backgroundColor: "#fff",
-                      fontSize: "11px",
-                      cursor: "pointer",
+                      display: "flex",
+                      gap: "8px",
+                      alignItems: "center",
                     }}
                   >
-                    ⬇ 이 지원분야 일괄 다운로드
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {open && (
-              <div style={{ padding: "10px 14px" }}>
-                {/* 평가항목 포함/제외 토글 */}
-                <CopyableSection
-                  title="평가항목 포함 여부"
-                  extraRight={
-                    <span style={{ fontSize: "11px", color: "#666" }}>
-                      체크된 항목만 통계/그래프에 반영
-                    </span>
-                  }
-                  onRegisterSection={registerSectionForGroup}
-                  sectionId="01_fieldToggle"
-                  sectionType="표"
-                  hideToolbar={isReportMode}
-                >
-                  {availableFields.length === 0 ? (
-                    <div
+                    <CopyAsImageButton
+                      targetRef={groupRefWrapper}
+                      label="이 지원분야 전체 복사"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleDownloadAll}
                       style={{
-                        fontSize: "12px",
-                        color: "#999",
+                        padding: "4px 10px",
+                        borderRadius: "999px",
+                        border: "1px solid #666",
+                        backgroundColor: "#fff",
+                        fontSize: "11px",
+                        cursor: "pointer",
                       }}
                     >
-                      이 지원분야에 사용 가능한 평가항목이 없습니다.
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "6px 12px",
-                        fontSize: "12px",
-                      }}
-                    >
-                      {availableFields.map((f) => {
-                        const checked = includedFields.includes(f);
-                        return (
-                          <label
-                            key={f}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: "4px",
-                              padding: "4px 8px",
-                              borderRadius: "999px",
-                              border: checked
-                                ? `1px solid ${COLORS.primary}`
-                                : "1px solid #ccc",
-                              backgroundColor: checked
-                                ? "#e3f2fd"
-                                : "#fafafa",
-                              cursor: "pointer",
-                            }}
-                            onClick={handleToggleField(groupName, f)}
-                          >
-                            <input
-                              type="checkbox"
-                              readOnly
-                              checked={checked}
-                              style={{ margin: 0 }}
-                            />
-                            <span>{f}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  )}
-                </CopyableSection>
+                      ⬇ 이 지원분야 일괄 다운로드
+                    </button>
+                  </div>
+                )}
+              </div>
 
-                {/* 요약 통계 + 전형 결과별 합/불 평균 2열 */}
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns:
-                      "repeat(auto-fit, minmax(260px, 1fr))",
-                    gap: "12px",
-                    marginBottom: "8px",
-                  }}
-                >
-                  {/* 요약 통계 */}
+              {open && (
+                <div style={{ padding: "10px 14px" }}>
+                  {/* 평가항목 포함/제외 토글 */}
                   <CopyableSection
-                    title="요약 통계 (총점 기준)"
+                    title="평가항목 포함 여부"
+                    extraRight={
+                      <span
+                        style={{ fontSize: "11px", color: "#666" }}
+                      >
+                        체크된 항목만 통계/그래프에 반영
+                      </span>
+                    }
                     onRegisterSection={registerSectionForGroup}
-                    sectionId="02_summaryStats"
+                    sectionId="01_fieldToggle"
                     sectionType="표"
                     hideToolbar={isReportMode}
                   >
-                    <div style={{ fontSize: "13px" }}>
-                      {totalScores.length === 0 ? (
-                        <div style={{ color: "#999" }}>
-                          총점 데이터가 없어 통계를 계산할 수 없습니다.
+                    {availableFields.length === 0 ? (
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          color: "#999",
+                        }}
+                      >
+                        이 지원분야에 사용 가능한 평가항목이 없습니다.
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: "6px 12px",
+                          fontSize: "12px",
+                        }}
+                      >
+                        {availableFields.map((f) => {
+                          const checked = includedFields.includes(f);
+                          return (
+                            <label
+                              key={f}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                padding: "4px 8px",
+                                borderRadius: "999px",
+                                border: checked
+                                  ? `1px solid ${COLORS.primary}`
+                                  : "1px solid #ccc",
+                                backgroundColor: checked
+                                  ? "#e3f2fd"
+                                  : "#fafafa",
+                                cursor: "pointer",
+                              }}
+                              onClick={handleToggleField(groupName, f)}
+                            >
+                              <input
+                                type="checkbox"
+                                readOnly
+                                checked={checked}
+                                style={{ margin: 0 }}
+                              />
+                              <span>{f}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </CopyableSection>
+
+                  {/* 요약 통계 + 전형 결과별 합/불 평균 2열 */}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(260px, 1fr))",
+                      gap: "12px",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    {/* 요약 통계 */}
+                    <CopyableSection
+                      title="요약 통계 (총점 기준)"
+                      onRegisterSection={registerSectionForGroup}
+                      sectionId="02_summaryStats"
+                      sectionType="표"
+                      hideToolbar={isReportMode}
+                    >
+                      <div style={{ fontSize: "13px" }}>
+                        {totalScores.length === 0 ? (
+                          <div style={{ color: "#999" }}>
+                            총점 데이터가 없어 통계를 계산할 수 없습니다.
+                          </div>
+                        ) : (
+                          <div
+                            style={{
+                              width: `${tableWidthScale}%`,
+                              maxWidth: "100%",
+                              overflowX: "auto",
+                              resize: "horizontal",
+                              display: "inline-block",
+                            }}
+                          >
+                            <table
+                              style={{
+                                borderCollapse: "collapse",
+                                width: "100%",
+                              }}
+                            >
+                              <tbody>
+                                {[
+                                  [
+                                    "최고점",
+                                    Math.max(...totalScores).toFixed(2),
+                                  ],
+                                  [
+                                    "최저점",
+                                    Math.min(...totalScores).toFixed(2),
+                                  ],
+                                  [
+                                    "합격자 기준 최저점 (커트라인)",
+                                    cutoff !== null
+                                      ? cutoff.toFixed(2)
+                                      : "-",
+                                  ],
+                                  [
+                                    "불합격자 기준 최고점",
+                                    failScores.length
+                                      ? Math.max(
+                                        ...failScores
+                                      ).toFixed(2)
+                                      : "-",
+                                  ],
+                                  [
+                                    "총점 평균",
+                                    totalAvg !== null
+                                      ? totalAvg.toFixed(2)
+                                      : "-",
+                                  ],
+                                  [
+                                    "총점 중앙값",
+                                    totalMed !== null
+                                      ? totalMed.toFixed(2)
+                                      : "-",
+                                  ],
+                                  [
+                                    "총점 표준편차",
+                                    totalStd !== null
+                                      ? totalStd.toFixed(2)
+                                      : "-",
+                                  ],
+                                  [
+                                    "합격컷 상위 %",
+                                    cutoffPercent !== null
+                                      ? cutoffPercent.toFixed(1)
+                                      : "-",
+                                  ],
+                                ].map(([label, value], idx) => (
+                                  <tr
+                                    key={label}
+                                    style={{
+                                      backgroundColor:
+                                        tableUseZebra && idx % 2 === 1
+                                          ? zebraRowColor
+                                          : "transparent",
+                                    }}
+                                  >
+                                    <td
+                                      style={{
+                                        padding: "4px 8px",
+                                        borderBottom:
+                                          "1px solid #eee",
+                                        borderRight: tableUseZebra
+                                          ? `1px solid ${zebraBorderColor}`
+                                          : "none",
+                                      }}
+                                    >
+                                      {label}
+                                    </td>
+                                    <td
+                                      style={{
+                                        padding: "4px 8px",
+                                        borderBottom:
+                                          "1px solid #eee",
+                                        textAlign: tableNumericAlign,
+                                        borderRight: tableUseZebra
+                                          ? `1px solid ${zebraBorderColor}`
+                                          : "none",
+                                      }}
+                                    >
+                                      {value}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </CopyableSection>
+
+                    {/* 전형 결과별 총점 평균 (그래프) */}
+                    <CopyableSection
+                      title="전형 결과별 합/불 총점 평균"
+                      onRegisterSection={registerSectionForGroup}
+                      sectionId="03_phaseTotalAvg"
+                      sectionType="그래프"
+                      hideToolbar={isReportMode}
+                    >
+                      {phaseTotalAvgData.length === 0 ? (
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            color: "#999",
+                          }}
+                        >
+                          합격/불합격 구분 가능한 데이터가 없습니다.
                         </div>
                       ) : (
+                        <div
+                          style={{
+                            width: `${chartWidthScale}%`,
+                            maxWidth: "100%",
+                            height: chartHeight,
+                          }}
+                        >
+                          <ResponsiveContainer>
+                            <BarChart
+                              data={phaseTotalAvgData}
+                              margin={{
+                                top: 30,
+                                right: 20,
+                                left: 10,
+                                bottom: 10,
+                              }}
+                            >
+                              {showCartesianGrid && (
+                                <CartesianGrid strokeDasharray="3 3" />
+                              )}
+                              <XAxis dataKey="phase" />
+                              <YAxis />
+                              <Tooltip />
+                              {showLegend && <Legend />}
+                              <Bar
+                                dataKey="avg"
+                                name="총점 평균"
+                                fillOpacity={0.9}
+                                barSize={barSize}
+                              >
+                                <LabelList
+                                  dataKey="avg"
+                                  position="top"
+                                  formatter={formatLabelValue}
+                                  style={{ fontSize: labelFontSize }}
+                                />
+                                {phaseTotalAvgData.map((d, idx) => (
+                                  <Cell
+                                    key={`cell-${idx}`}
+                                    fill={
+                                      d.phase === "합격"
+                                        ? COLORS.primary
+                                        : COLORS.secondary
+                                    }
+                                  />
+                                ))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </CopyableSection>
+                  </div>
+
+                  {/* 평가항목별 합/불 평균 + 상관계수 */}
+                  <CopyableSection
+                    title="평가항목별 합/불 평균 및 합격 공헌도(상관계수)"
+                    onRegisterSection={registerSectionForGroup}
+                    sectionId="04_fieldStats"
+                    sectionType="그래프"
+                    hideToolbar={isReportMode}
+                  >
+                    {fieldStats.length === 0 ? (
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          color: "#999",
+                        }}
+                      >
+                        포함된 평가항목이 없습니다. 위에서 평가항목을
+                        선택해 주세요.
+                      </div>
+                    ) : (
+                      <>
                         <div
                           style={{
                             width: `${tableWidthScale}%`,
@@ -2224,108 +2597,190 @@ export default function Step6StatsAndCharts({
                         >
                           <table
                             style={{
-                              borderCollapse: "collapse",
                               width: "100%",
+                              borderCollapse: "collapse",
+                              fontSize: "12px",
+                              marginBottom: "8px",
                             }}
                           >
+                            <thead>
+                              <tr>
+                                {[
+                                  "평가항목",
+                                  "합격자 평균",
+                                  "불합격자 평균",
+                                  "합격 공헌도 (상관계수)",
+                                ].map((label, idx) => (
+                                  <th
+                                    key={label}
+                                    style={{
+                                      borderBottom: `1px solid ${zebraBorderColor}`,
+                                      textAlign:
+                                        idx === 0
+                                          ? "left"
+                                          : tableNumericAlign,
+                                      padding: "4px 8px",
+                                      fontWeight: tableHeaderBold
+                                        ? 600
+                                        : 400,
+                                      backgroundColor: tableHeaderBg,
+                                      borderRight:
+                                        tableUseZebra && idx !== 3
+                                          ? `1px solid ${zebraBorderColor}`
+                                          : "none",
+                                    }}
+                                  >
+                                    {label}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
                             <tbody>
-                              {[
-                                ["최고점", Math.max(...totalScores).toFixed(2)],
-                                ["최저점", Math.min(...totalScores).toFixed(2)],
-                                [
-                                  "합격자 기준 최저점 (커트라인)",
-                                  cutoff !== null
-                                    ? cutoff.toFixed(2)
-                                    : "-",
-                                ],
-                                [
-                                  "불합격자 기준 최고점",
-                                  failScores.length
-                                    ? Math.max(...failScores).toFixed(2)
-                                    : "-",
-                                ],
-                                [
-                                  "총점 평균",
-                                  totalAvg !== null
-                                    ? totalAvg.toFixed(2)
-                                    : "-",
-                                ],
-                                [
-                                  "총점 중앙값",
-                                  totalMed !== null
-                                    ? totalMed.toFixed(2)
-                                    : "-",
-                                ],
-                                [
-                                  "총점 표준편차",
-                                  totalStd !== null
-                                    ? totalStd.toFixed(2)
-                                    : "-",
-                                ],
-                                [
-                                  "합격컷 상위 %",
-                                  cutoffPercent !== null
-                                    ? cutoffPercent.toFixed(1)
-                                    : "-",
-                                ],
-                              ].map(([label, value], idx) => (
+                              {fieldStats.map((fs, rowIndex) => (
                                 <tr
-                                  key={label}
+                                  key={fs.field}
                                   style={{
                                     backgroundColor:
-                                      tableUseZebra && idx % 2 === 1
+                                      tableUseZebra &&
+                                        rowIndex % 2 === 1
                                         ? zebraRowColor
                                         : "transparent",
                                   }}
                                 >
                                   <td
                                     style={{
-                                      padding: "4px 8px",
                                       borderBottom: "1px solid #eee",
+                                      padding: "4px 8px",
                                       borderRight: tableUseZebra
                                         ? `1px solid ${zebraBorderColor}`
                                         : "none",
                                     }}
                                   >
-                                    {label}
+                                    {fs.field}
                                   </td>
                                   <td
                                     style={{
-                                      padding: "4px 8px",
                                       borderBottom: "1px solid #eee",
+                                      padding: "4px 8px",
                                       textAlign: tableNumericAlign,
                                       borderRight: tableUseZebra
                                         ? `1px solid ${zebraBorderColor}`
                                         : "none",
                                     }}
                                   >
-                                    {value}
+                                    {fs.passAvg !== null
+                                      ? fs.passAvg.toFixed(2)
+                                      : "-"}
+                                  </td>
+                                  <td
+                                    style={{
+                                      borderBottom: "1px solid #eee",
+                                      padding: "4px 8px",
+                                      textAlign: tableNumericAlign,
+                                      borderRight: tableUseZebra
+                                        ? `1px solid ${zebraBorderColor}`
+                                        : "none",
+                                    }}
+                                  >
+                                    {fs.failAvg !== null
+                                      ? fs.failAvg.toFixed(2)
+                                      : "-"}
+                                  </td>
+                                  <td
+                                    style={{
+                                      borderBottom: "1px solid #eee",
+                                      padding: "4px 8px",
+                                      textAlign: tableNumericAlign,
+                                    }}
+                                  >
+                                    {fs.corr !== null
+                                      ? fs.corr.toFixed(3)
+                                      : "-"}
                                   </td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
-                      )}
-                    </div>
+
+                        <div
+                          style={{
+                            width: `${chartWidthScale}%`,
+                            maxWidth: "100%",
+                            height: chartHeight + 20,
+                          }}
+                        >
+                          <ResponsiveContainer>
+                            <BarChart
+                              data={fieldChartData}
+                              margin={{
+                                top: 30,
+                                right: 20,
+                                left: 10,
+                                bottom: 10,
+                              }}
+                            >
+                              {showCartesianGrid && (
+                                <CartesianGrid strokeDasharray="3 3" />
+                              )}
+                              <XAxis dataKey="field" />
+                              <YAxis />
+                              <Tooltip />
+                              {showLegend && (
+                                <Legend content={renderPassFailLegend} />
+                              )}
+                              <Bar
+                                dataKey="passAvg"
+                                name="합격자"
+                                fill={COLORS.primary}
+                                fillOpacity={0.9}
+                                barSize={barSize}
+                              >
+                                <LabelList
+                                  dataKey="passAvg"
+                                  position="top"
+                                  formatter={formatLabelValue}
+                                  style={{ fontSize: labelFontSize }}
+                                />
+                              </Bar>
+                              <Bar
+                                dataKey="failAvg"
+                                name="불합격자"
+                                fill={COLORS.secondary}
+                                fillOpacity={0.9}
+                                barSize={barSize}
+                              >
+                                <LabelList
+                                  dataKey="failAvg"
+                                  position="top"
+                                  formatter={formatLabelValue}
+                                  style={{ fontSize: labelFontSize }}
+                                />
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </>
+                    )}
                   </CopyableSection>
 
-                  {/* 전형 결과별 총점 평균 (그래프) */}
+                  {/* 최종 결과 비교 그래프 */}
                   <CopyableSection
-                    title="전형 결과별 합/불 총점 평균"
+                    title="채용 결과별 총점 비교"
                     onRegisterSection={registerSectionForGroup}
-                    sectionId="03_phaseTotalAvg"
+                    sectionId="05_finalCompare"
                     sectionType="그래프"
                     hideToolbar={isReportMode}
                   >
-                    {phaseTotalAvgData.length === 0 ? (
+                    {finalCompareData.length === 0 ? (
                       <div
                         style={{
                           fontSize: "12px",
                           color: "#999",
                         }}
                       >
-                        합격/불합격 구분 가능한 데이터가 없습니다.
+                        최종 합격자 또는 &quot;전형 합격 후 최종 불합격&quot;
+                        데이터가 없습니다.
                       </div>
                     ) : (
                       <div
@@ -2337,7 +2792,7 @@ export default function Step6StatsAndCharts({
                       >
                         <ResponsiveContainer>
                           <BarChart
-                            data={phaseTotalAvgData}
+                            data={finalCompareData}
                             margin={{
                               top: 30,
                               right: 20,
@@ -2348,7 +2803,7 @@ export default function Step6StatsAndCharts({
                             {showCartesianGrid && (
                               <CartesianGrid strokeDasharray="3 3" />
                             )}
-                            <XAxis dataKey="phase" />
+                            <XAxis dataKey="group" />
                             <YAxis />
                             <Tooltip />
                             {showLegend && <Legend />}
@@ -2364,13 +2819,13 @@ export default function Step6StatsAndCharts({
                                 formatter={formatLabelValue}
                                 style={{ fontSize: labelFontSize }}
                               />
-                              {phaseTotalAvgData.map((d, idx) => (
+                              {finalCompareData.map((d, idx) => (
                                 <Cell
-                                  key={`cell-${idx}`}
+                                  key={`final-cell-${idx}`}
                                   fill={
-                                    d.phase === "합격"
-                                      ? COLORS.primary
-                                      : COLORS.secondary
+                                    d.group.includes("불합격")
+                                      ? COLORS.secondary
+                                      : COLORS.primary
                                   }
                                 />
                               ))}
@@ -2381,271 +2836,11 @@ export default function Step6StatsAndCharts({
                     )}
                   </CopyableSection>
                 </div>
-
-                {/* 평가항목별 합/불 평균 + 상관계수 */}
-                <CopyableSection
-                  title="평가항목별 합/불 평균 및 합격 공헌도(상관계수)"
-                  onRegisterSection={registerSectionForGroup}
-                  sectionId="04_fieldStats"
-                  sectionType="그래프"
-                  hideToolbar={isReportMode}
-                >
-                  {fieldStats.length === 0 ? (
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#999",
-                      }}
-                    >
-                      포함된 평가항목이 없습니다. 위에서 평가항목을 선택해 주세요.
-                    </div>
-                  ) : (
-                    <>
-                      <div
-                        style={{
-                          width: `${tableWidthScale}%`,
-                          maxWidth: "100%",
-                          overflowX: "auto",
-                          resize: "horizontal",
-                          display: "inline-block",
-                        }}
-                      >
-                        <table
-                          style={{
-                            width: "100%",
-                            borderCollapse: "collapse",
-                            fontSize: "12px",
-                            marginBottom: "8px",
-                          }}
-                        >
-                          <thead>
-                            <tr>
-                              {["평가항목", "합격자 평균", "불합격자 평균", "합격 공헌도 (상관계수)"].map(
-                                (label, idx) => (
-                                  <th
-                                    key={label}
-                                    style={{
-                                      borderBottom: `1px solid ${zebraBorderColor}`,
-                                      textAlign: idx === 0 ? "left" : tableNumericAlign,
-                                      padding: "4px 8px",
-                                      fontWeight: tableHeaderBold ? 600 : 400,
-                                      backgroundColor: tableHeaderBg,
-                                      borderRight:
-                                        tableUseZebra && idx !== 3
-                                          ? `1px solid ${zebraBorderColor}`
-                                          : "none",
-                                    }}
-                                  >
-                                    {label}
-                                  </th>
-                                )
-                              )}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {fieldStats.map((fs, rowIndex) => (
-                              <tr
-                                key={fs.field}
-                                style={{
-                                  backgroundColor:
-                                    tableUseZebra && rowIndex % 2 === 1
-                                      ? zebraRowColor
-                                      : "transparent",
-                                }}
-                              >
-                                <td
-                                  style={{
-                                    borderBottom: "1px solid #eee",
-                                    padding: "4px 8px",
-                                    borderRight: tableUseZebra
-                                      ? `1px solid ${zebraBorderColor}`
-                                      : "none",
-                                  }}
-                                >
-                                  {fs.field}
-                                </td>
-                                <td
-                                  style={{
-                                    borderBottom: "1px solid #eee",
-                                    padding: "4px 8px",
-                                    textAlign: tableNumericAlign,
-                                    borderRight: tableUseZebra
-                                      ? `1px solid ${zebraBorderColor}`
-                                      : "none",
-                                  }}
-                                >
-                                  {fs.passAvg !== null
-                                    ? fs.passAvg.toFixed(2)
-                                    : "-"}
-                                </td>
-                                <td
-                                  style={{
-                                    borderBottom: "1px solid #eee",
-                                    padding: "4px 8px",
-                                    textAlign: tableNumericAlign,
-                                    borderRight: tableUseZebra
-                                      ? `1px solid ${zebraBorderColor}`
-                                      : "none",
-                                  }}
-                                >
-                                  {fs.failAvg !== null
-                                    ? fs.failAvg.toFixed(2)
-                                    : "-"}
-                                </td>
-                                <td
-                                  style={{
-                                    borderBottom: "1px solid #eee",
-                                    padding: "4px 8px",
-                                    textAlign: tableNumericAlign,
-                                  }}
-                                >
-                                  {fs.corr !== null
-                                    ? fs.corr.toFixed(3)
-                                    : "-"}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      <div
-                        style={{
-                          width: `${chartWidthScale}%`,
-                          maxWidth: "100%",
-                          height: chartHeight + 20,
-                        }}
-                      >
-                        <ResponsiveContainer>
-                          <BarChart
-                            data={fieldChartData}
-                            margin={{
-                              top: 30,
-                              right: 20,
-                              left: 10,
-                              bottom: 10,
-                            }}
-                          >
-                            {showCartesianGrid && (
-                              <CartesianGrid strokeDasharray="3 3" />
-                            )}
-                            <XAxis dataKey="field" />
-                            <YAxis />
-                            <Tooltip />
-                            {showLegend && (
-                              <Legend content={renderPassFailLegend} />
-                            )}
-                            <Bar
-                              dataKey="passAvg"
-                              name="합격자"
-                              fill={COLORS.primary}
-                              fillOpacity={0.9}
-                              barSize={barSize}
-                            >
-                              <LabelList
-                                dataKey="passAvg"
-                                position="top"
-                                formatter={formatLabelValue}
-                                style={{ fontSize: labelFontSize }}
-                              />
-                            </Bar>
-                            <Bar
-                              dataKey="failAvg"
-                              name="불합격자"
-                              fill={COLORS.secondary}
-                              fillOpacity={0.9}
-                              barSize={barSize}
-                            >
-                              <LabelList
-                                dataKey="failAvg"
-                                position="top"
-                                formatter={formatLabelValue}
-                                style={{ fontSize: labelFontSize }}
-                              />
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </>
-                  )}
-                </CopyableSection>
-
-                {/* 최종 결과 비교 그래프 */}
-                <CopyableSection
-                  title="채용 결과별 총점 비교"
-                  onRegisterSection={registerSectionForGroup}
-                  sectionId="05_finalCompare"
-                  sectionType="그래프"
-                  hideToolbar={isReportMode}
-                >
-                  {finalCompareData.length === 0 ? (
-                    <div
-                      style={{
-                        fontSize: "12px",
-                        color: "#999",
-                      }}
-                    >
-                      최종 합격자 또는 &quot;전형 합격 후 최종 불합격&quot; 데이터가
-                      없습니다.
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        width: `${chartWidthScale}%`,
-                        maxWidth: "100%",
-                        height: chartHeight,
-                      }}
-                    >
-                      <ResponsiveContainer>
-                        <BarChart
-                          data={finalCompareData}
-                          margin={{
-                            top: 30,
-                            right: 20,
-                            left: 10,
-                            bottom: 10,
-                          }}
-                        >
-                          {showCartesianGrid && (
-                            <CartesianGrid strokeDasharray="3 3" />
-                          )}
-                          <XAxis dataKey="group" />
-                          <YAxis />
-                          <Tooltip />
-                          {showLegend && <Legend />}
-                          <Bar
-                            dataKey="avg"
-                            name="총점 평균"
-                            fillOpacity={0.9}
-                            barSize={barSize}
-                          >
-                            <LabelList
-                              dataKey="avg"
-                              position="top"
-                              formatter={formatLabelValue}
-                              style={{ fontSize: labelFontSize }}
-                            />
-                            {finalCompareData.map((d, idx) => (
-                              <Cell
-                                key={`final-cell-${idx}`}
-                                fill={
-                                  d.group.includes("불합격")
-                                    ? COLORS.secondary
-                                    : COLORS.primary
-                                }
-                              />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </CopyableSection>
-              </div>
-            )}
-          </div>
-        );
-      })}
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
