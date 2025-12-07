@@ -19,6 +19,7 @@ import {
   getRoundCalc,
   saveRoundCalc,
 } from "../../services/evalRoundService";
+import { makeReportPDF } from "../../utils/MakeReportPDF"; // 🔹 추가
 
 const COLORS = {
   primary: "#1976d2",   // 합격: 파란색
@@ -181,6 +182,7 @@ function CopyableSection({
   onDragStart,
   onDragOver,
   onDrop,
+  hideToolbar = false, // 🔹 추가: 보고서 모드에서 툴바 숨김
 }) {
   // 바깥 카드(섹션 전체 박스)용 ref
   const containerRef = useRef(null);
@@ -230,7 +232,7 @@ function CopyableSection({
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           {extraRight}
           {/* ✅ 섹션 복사는 바깥 박스 말고 "내용 영역"만 캡쳐 */}
-          <CopyAsImageButton targetRef={contentRef} />
+          {!hideToolbar && <CopyAsImageButton targetRef={contentRef} />}
         </div>
       </div>
       {/* ✅ 여기부터가 실제 캡쳐 대상 (그래프/표 자체) */}
@@ -910,10 +912,15 @@ export default function Step6StatsAndCharts({
   const [sectionTitle, setSectionTitle] = useState(
     "지원분야별 통계 · 그래프"
   );
-  
+
+  // 🔹 보고서(PDF) 모드 상태
+  const [isReportMode, setIsReportMode] = useState(false);
+  const reportRef = useRef(null);
+
   // ✅ Step6 계산 저장/불러오기 상태
   const [isSavingCalc, setIsSavingCalc] = useState(false);
   const [isLoadingCalc, setIsLoadingCalc] = useState(false);
+  const [isMakingPdf, setIsMakingPdf] = useState(false);
   const [calcStatus, setCalcStatus] = useState("");
   const [hasLoadedCalc, setHasLoadedCalc] = useState(false);
   // ✅ 섹션 타이틀 (전형별로 저장)
@@ -1105,7 +1112,6 @@ export default function Step6StatsAndCharts({
     return rowsForSummary;
   }, [groupData]);
 
-  // ✅ ReportEditor에서 그래프/표 다시 그릴 수 있도록, 그룹별 통계 스냅샷 저장용
   // ✅ ReportEditor에서 그래프/표 다시 그릴 수 있도록, 그룹별 통계 스냅샷 저장용
   const perGroupStats = useMemo(() => {
     const result = {};
@@ -1422,7 +1428,43 @@ export default function Step6StatsAndCharts({
     }
   };
 
-  // ✅ Step6 계산 결과 저장용 payload 생성 (계산 로직은 그대로, 스냅샷만 보냄)
+  // 🔹 PDF "보고서화" 핸들러
+  const handleMakeReportPdf = () => {
+    const node = reportRef.current;
+    if (!node) {
+      alert("PDF로 만들 영역을 찾을 수 없습니다.");
+      return;
+    }
+
+    const safe = (v, fallback) =>
+      String(v || fallback)
+        .trim()
+        .replace(/[\\/:*?"<>|]/g, "_");
+
+    const fileName = `${safe(projectName, "프로젝트")}_${safe(
+      stageName,
+      "전형"
+    )}_Step6_통계보고서.pdf`;
+
+    setIsReportMode(true);
+    setIsMakingPdf(true); // 🔹 추가
+
+    // 버튼/입력 숨긴 뒤 DOM 갱신되고 나서 캡처
+    setTimeout(async () => {
+      try {
+        await makeReportPDF(node, { fileName, marginMm: 8 });
+      } catch (err) {
+        console.error(err);
+        alert("PDF 생성 중 오류가 발생했습니다.");
+      } finally {
+        setIsReportMode(false);
+        setIsMakingPdf(false); // 🔹 추가
+      }
+    }, 200);
+  };
+
+
+  // ✅ Step6 계산 결과 저장용 payload 생성
   const buildCalcPayload = () => ({
     config: {
       styleConfig,
@@ -1543,35 +1585,72 @@ export default function Step6StatsAndCharts({
   ]);
 
   return (
-    <div style={{ position: "relative" }}>
+    <div style={{ position: "relative" }} ref={reportRef}>
+      {(isDownloadingAll || isMakingPdf) && (
+        <LoadingSpinner
+          message={
+            isDownloadingAll
+              ? "전체 레포트 일괄 다운로드 준비 중입니다..."
+              : "보고서 PDF를 생성 중입니다..."
+          }
+        />
+      )}
+
       <div
         style={{
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: "8px",
           marginBottom: "4px",
           flexWrap: "wrap",
         }}
       >
-        <h2 style={{ margin: 0 }}>{sectionTitle}</h2>
-        <input
-          type="text"
-          value={sectionTitle}
-          onChange={(e) => setSectionTitle(e.target.value)}
-          placeholder="섹션 제목을 입력하세요"
+        <div
           style={{
-            fontSize: "12px",
-            padding: "4px 8px",
-            borderRadius: "999px",
-            border: "1px solid #ccc",
-            minWidth: "220px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            flexWrap: "wrap",
           }}
-        />
+        >
+          <h2 style={{ margin: 0 }}>{sectionTitle}</h2>
+          {!isReportMode && (
+            <input
+              type="text"
+              value={sectionTitle}
+              onChange={(e) => setSectionTitle(e.target.value)}
+              placeholder="섹션 제목을 입력하세요"
+              style={{
+                fontSize: "12px",
+                padding: "4px 8px",
+                borderRadius: "999px",
+                border: "1px solid #ccc",
+                minWidth: "220px",
+              }}
+            />
+          )}
+        </div>
+        {!isReportMode && (
+          <button
+            type="button"
+            onClick={handleMakeReportPdf}
+            style={{
+              padding: "6px 12px",
+              borderRadius: "999px",
+              border: "1px solid #1976d2",
+              backgroundColor: "#1976d2",
+              color: "#fff",
+              fontSize: "12px",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            📄 보고서화하기
+          </button>
+        )}
       </div>
 
-      {isDownloadingAll && (
-        <LoadingSpinner message="전체 레포트 일괄 다운로드 준비 중..." />
-      )}
       <div
         style={{
           marginBottom: "8px",
@@ -1587,55 +1666,60 @@ export default function Step6StatsAndCharts({
             ? "저장된 Step6 계산 결과를 불러오는 중입니다..."
             : calcStatus}
         </div>
-        <div
-          style={{
-            display: "flex",
-            gap: "8px",
-          }}
-        >
-          <button
-            type="button"
-            onClick={handleSaveCalc}
-            disabled={!roundId || !projectToken || isSavingCalc}
+        {!isReportMode && (
+          <div
             style={{
-              padding: "6px 12px",
-              borderRadius: "999px",
-              border: "1px solid #555",
-              backgroundColor: isSavingCalc ? "#eee" : "#fff",
-              color: "#333",
-              fontSize: "12px",
-              cursor:
-                !roundId || !projectToken || isSavingCalc
-                  ? "not-allowed"
-                  : "pointer",
-              opacity:
-                !roundId || !projectToken || isSavingCalc
-                  ? 0.6
-                  : 1,
+              display: "flex",
+              gap: "8px",
             }}
           >
-            💾 Step6 계산 저장
-          </button>
-          <button
-            type="button"
-            onClick={handleDownloadWholeReport}
-            style={{
-              padding: "6px 12px",
-              borderRadius: "999px",
-              border: "1px solid #1976d2",
-              backgroundColor: "#1976d2",
-              color: "#fff",
-              fontSize: "12px",
-              cursor: "pointer",
-            }}
-          >
-            ⬇ 레포트 전체 일괄 다운로드
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={handleSaveCalc}
+              disabled={!roundId || !projectToken || isSavingCalc}
+              style={{
+                padding: "6px 12px",
+                borderRadius: "999px",
+                border: "1px solid #555",
+                backgroundColor: isSavingCalc ? "#eee" : "#fff",
+                color: "#333",
+                fontSize: "12px",
+                cursor:
+                  !roundId || !projectToken || isSavingCalc
+                    ? "not-allowed"
+                    : "pointer",
+                opacity:
+                  !roundId || !projectToken || isSavingCalc
+                    ? 0.6
+                    : 1,
+              }}
+            >
+              💾 Step6 계산 저장
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadWholeReport}
+              style={{
+                padding: "6px 12px",
+                borderRadius: "999px",
+                border: "1px solid #1976d2",
+                backgroundColor: "#1976d2",
+                color: "#fff",
+                fontSize: "12px",
+                cursor: "pointer",
+              }}
+            >
+              ⬇ 레포트 전체 일괄 다운로드
+            </button>
+          </div>
+        )}
       </div>
 
+
       {/* ✅ Step 6 전용 floating 도구 모음 (이제 '적용' 눌러야 실제 반영) */}
-      <Step6ChartToolbox config={styleConfig} onApply={setStyleConfig} />
+      {!isReportMode && (
+        <Step6ChartToolbox config={styleConfig} onApply={setStyleConfig} />
+      )}
 
       {/* 지원분야 간 요약 비교 표 (전역) */}
       <CopyableSection
@@ -1643,6 +1727,7 @@ export default function Step6StatsAndCharts({
         onRegisterSection={registerOverviewSection}
         sectionId="00_crossGroupSummary"
         sectionType="표"
+        hideToolbar={isReportMode}
       >
         <div
           style={{
@@ -1979,8 +2064,7 @@ export default function Step6StatsAndCharts({
                   setOpenGroups((prev) => ({
                     ...prev,
                     [groupName]: !open,
-                  }))
-                }
+                  }))}
               >
                 <div>
                   <div style={{ fontWeight: 600 }}>
@@ -2007,32 +2091,34 @@ export default function Step6StatsAndCharts({
                 <div style={{ fontSize: "18px" }}>{open ? "▴" : "▾"}</div>
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  gap: "8px",
-                  alignItems: "center",
-                }}
-              >
-                <CopyAsImageButton
-                  targetRef={groupRefWrapper}
-                  label="이 지원분야 전체 복사"
-                />
-                <button
-                  type="button"
-                  onClick={handleDownloadAll}
+              {!isReportMode && (
+                <div
                   style={{
-                    padding: "4px 10px",
-                    borderRadius: "999px",
-                    border: "1px solid #666",
-                    backgroundColor: "#fff",
-                    fontSize: "11px",
-                    cursor: "pointer",
+                    display: "flex",
+                    gap: "8px",
+                    alignItems: "center",
                   }}
                 >
-                  ⬇ 이 지원분야 일괄 다운로드
-                </button>
-              </div>
+                  <CopyAsImageButton
+                    targetRef={groupRefWrapper}
+                    label="이 지원분야 전체 복사"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleDownloadAll}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: "999px",
+                      border: "1px solid #666",
+                      backgroundColor: "#fff",
+                      fontSize: "11px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ⬇ 이 지원분야 일괄 다운로드
+                  </button>
+                </div>
+              )}
             </div>
 
             {open && (
@@ -2048,6 +2134,7 @@ export default function Step6StatsAndCharts({
                   onRegisterSection={registerSectionForGroup}
                   sectionId="01_fieldToggle"
                   sectionType="표"
+                  hideToolbar={isReportMode}
                 >
                   {availableFields.length === 0 ? (
                     <div
@@ -2118,6 +2205,7 @@ export default function Step6StatsAndCharts({
                     onRegisterSection={registerSectionForGroup}
                     sectionId="02_summaryStats"
                     sectionType="표"
+                    hideToolbar={isReportMode}
                   >
                     <div style={{ fontSize: "13px" }}>
                       {totalScores.length === 0 ? (
@@ -2228,6 +2316,7 @@ export default function Step6StatsAndCharts({
                     onRegisterSection={registerSectionForGroup}
                     sectionId="03_phaseTotalAvg"
                     sectionType="그래프"
+                    hideToolbar={isReportMode}
                   >
                     {phaseTotalAvgData.length === 0 ? (
                       <div
@@ -2299,6 +2388,7 @@ export default function Step6StatsAndCharts({
                   onRegisterSection={registerSectionForGroup}
                   sectionId="04_fieldStats"
                   sectionType="그래프"
+                  hideToolbar={isReportMode}
                 >
                   {fieldStats.length === 0 ? (
                     <div
@@ -2486,6 +2576,7 @@ export default function Step6StatsAndCharts({
                   onRegisterSection={registerSectionForGroup}
                   sectionId="05_finalCompare"
                   sectionType="그래프"
+                  hideToolbar={isReportMode}
                 >
                   {finalCompareData.length === 0 ? (
                     <div
