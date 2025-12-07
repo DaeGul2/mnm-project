@@ -36,8 +36,7 @@ export const RechartsComponents = {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList, Cell
 };
 
-/**
- * 중첩된 객체에서 데이터 경로(dataKey)를 사용하여 값을 가져오는 유틸리티 함수
+/* 중첩된 객체에서 데이터 경로(dataKey)를 사용하여 값을 가져오는 유틸리티 함수
  * @param {object} obj - 대상 객체 (예: calc.stats)
  * @param {string} path - 키 경로 (예: 'perGroup.경영기획.fieldStats')
  */
@@ -51,17 +50,14 @@ export function getNestedData(obj, path) {
   }
   return current;
 }
-
 /**
  * 숫자를 소수점 두 자리까지 포맷팅하거나, null/undefined를 처리합니다.
  */
 export function formatNumber(value, fixed = 2) {
   if (value === null || value === undefined || isNaN(value)) return 'N/A';
   if (typeof value === 'number') {
-    if (path.includes('passRate') || path.includes('cutoffPercent')) {
-        // 합격률이나 퍼센트 관련 데이터는 소수점 한 자리로 조정
-        return `${value.toFixed(1)}%`;
-    }
+    // [수정]: 'path' 변수가 정의되지 않아 발생한 오류를 수정하기 위해 
+    // 키에 의존하는 조건문(path.includes...)을 제거하고 일반 포맷팅만 남깁니다.
     return value.toFixed(fixed);
   }
   return value; // 문자열 등 다른 타입은 그대로 반환

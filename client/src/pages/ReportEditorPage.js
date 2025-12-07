@@ -517,7 +517,7 @@ export default function ReportEditorPage() {
         setPages((prev) =>
           prev.map((p) => {
             if (p.id !== pageId) return p;
-            
+
             const shape = p.shapes.find(s => s.id === shapeId);
             if (!shape) return p;
 
@@ -530,7 +530,7 @@ export default function ReportEditorPage() {
 
             // 최대 허용 크기 계산 (오른쪽/아래쪽 여백을 벗어나지 않도록)
             // 중심점(x)에서 오른쪽 여백 경계(1 - marginLeftRatio)까지의 거리 비율
-            const maxRightBoundaryRatio = 1 - marginLeftRatio - x; 
+            const maxRightBoundaryRatio = 1 - marginLeftRatio - x;
             // 허용되는 최대 너비 (픽셀) = maxRightBoundaryRatio * 2 * currentScaledWidth
             const maxAvailableWidth = maxRightBoundaryRatio * 2 * currentScaledWidth;
 
@@ -544,12 +544,12 @@ export default function ReportEditorPage() {
             const MIN_HEIGHT = 120;
 
             const newWidth = Math.min(
-                maxAvailableWidth, 
-                Math.max(MIN_WIDTH, newWidthCandidate)
+              maxAvailableWidth,
+              Math.max(MIN_WIDTH, newWidthCandidate)
             );
             const newHeight = Math.min(
-                maxAvailableHeight, 
-                Math.max(MIN_HEIGHT, newHeightCandidate)
+              maxAvailableHeight,
+              Math.max(MIN_HEIGHT, newHeightCandidate)
             );
 
             return {
@@ -628,8 +628,8 @@ export default function ReportEditorPage() {
       const savedReport = res?.report;
       setLastSavedAt(
         savedReport?.generated_at ||
-          savedReport?.updated_at ||
-          new Date().toISOString()
+        savedReport?.updated_at ||
+        new Date().toISOString()
       );
     } catch (err) {
       console.error("handleSaveDraft error:", err);
@@ -804,7 +804,122 @@ export default function ReportEditorPage() {
     }
 
     // 그룹별 요약
+    // 그룹별 요약
     if (meta.kind === "group" && meta.sectionKey === "summary") {
+      const stats = calc.stats || {};
+      const cross = stats.crossGroupSummary || [];
+      const perGroup = stats.perGroup || {};
+
+      const groupStats = perGroup[meta.groupName];
+      const summary = groupStats && groupStats.summaryStats;
+
+      // ✅ v2: Step6에서 summaryStats 저장된 경우 → 이걸 최우선 사용
+      if (summary) {
+        const rows = [
+          { label: "통계 대상 인원", value: summary.n ?? "-" },
+          {
+            label: "전형 합격률(%)",
+            value:
+              summary.passRate != null
+                ? `${summary.passRate.toFixed(1)}%`
+                : "-",
+          },
+          {
+            label: "최고점",
+            value:
+              summary.maxTotal != null
+                ? summary.maxTotal.toFixed(2)
+                : "-",
+          },
+          {
+            label: "최저점",
+            value:
+              summary.minTotal != null
+                ? summary.minTotal.toFixed(2)
+                : "-",
+          },
+          {
+            label: "합격자 기준 최저점 (커트라인)",
+            value:
+              summary.cutoff != null
+                ? summary.cutoff.toFixed(2)
+                : "-",
+          },
+          {
+            label: "불합격자 기준 최고점",
+            value:
+              summary.bestFailTotal != null
+                ? summary.bestFailTotal.toFixed(2)
+                : "-",
+          },
+          {
+            label: "총점 평균",
+            value:
+              summary.avgTotal != null
+                ? summary.avgTotal.toFixed(2)
+                : "-",
+          },
+          {
+            label: "총점 중앙값",
+            value:
+              summary.medianTotal != null
+                ? summary.medianTotal.toFixed(2)
+                : "-",
+          },
+          {
+            label: "총점 표준편차",
+            value:
+              summary.stdTotal != null
+                ? summary.stdTotal.toFixed(2)
+                : "-",
+          },
+          {
+            label: "합격컷 상위 %",
+            value:
+              summary.cutoffPercent != null
+                ? `${summary.cutoffPercent.toFixed(1)}%`
+                : "-",
+          },
+        ];
+
+        return (
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: "11px",
+            }}
+          >
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.label}>
+                  <td
+                    style={{
+                      width: "45%",
+                      borderBottom: "1px solid #f3f4f6",
+                      padding: "4px 6px",
+                      backgroundColor: "#f9fafb",
+                    }}
+                  >
+                    {r.label}
+                  </td>
+                  <td
+                    style={{
+                      borderBottom: "1px solid #f3f4f6",
+                      padding: "4px 6px",
+                      textAlign: "right",
+                    }}
+                  >
+                    {r.value}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        );
+      }
+
+      // ✅ v1 호환: summaryStats 없는 옛 데이터 → 기존 crossGroupSummary 기반 fallback
       const row = cross.find((r) => r.groupName === meta.groupName);
       if (!row) {
         return (
@@ -826,15 +941,18 @@ export default function ReportEditorPage() {
         { label: "통계 대상 인원", value: row.n },
         {
           label: "전형 합격률(%)",
-          value: row.passRate != null ? `${row.passRate.toFixed(1)}%` : "-",
+          value:
+            row.passRate != null ? `${row.passRate.toFixed(1)}%` : "-",
         },
         {
           label: "총점 평균",
-          value: row.avgTotal != null ? row.avgTotal.toFixed(2) : "-",
+          value:
+            row.avgTotal != null ? row.avgTotal.toFixed(2) : "-",
         },
         {
           label: "전형 합격 커트라인 점수",
-          value: row.cutoff != null ? row.cutoff.toFixed(2) : "-",
+          value:
+            row.cutoff != null ? row.cutoff.toFixed(2) : "-",
         },
         {
           label: "합격컷 상위 %",
@@ -881,6 +999,7 @@ export default function ReportEditorPage() {
         </table>
       );
     }
+
 
     // 전형 결과별 합/불 총점 평균 그래프
     if (meta.kind === "group" && meta.sectionKey === "phase-total-avg") {
@@ -1624,7 +1743,7 @@ export default function ReportEditorPage() {
                     overflow: "hidden",
                   }}
                 >
-                  
+
                   {/* 여백 경계선 시각화: 절대 위치를 사용하여 여백 영역을 표시 */}
                   <div
                     style={{
@@ -1633,7 +1752,7 @@ export default function ReportEditorPage() {
                       bottom: `${pageMargin}px`,
                       left: `${pageMargin}px`,
                       right: `${pageMargin}px`,
-                      border: `1px dashed #cccccc`, 
+                      border: `1px dashed #cccccc`,
                       pointerEvents: "none", // 이벤트를 통과시켜 아래 요소가 작동하게 함
                       boxSizing: "border-box",
                       zIndex: 10, // 도형/텍스트 위에 배치
@@ -1663,83 +1782,83 @@ export default function ReportEditorPage() {
                   {/* 그래프/표 도형 레이어 */}
                   <div
                     style={{
-                        position: 'absolute',
-                        inset: 0,
-                        zIndex: 2, // 텍스트보다 위에 배치
+                      position: 'absolute',
+                      inset: 0,
+                      zIndex: 2, // 텍스트보다 위에 배치
                     }}
                   >
-                      {page.shapes.map((shape) => (
-                        <div
-                          key={shape.id}
-                          onMouseDown={(e) => handleShapeMouseDown(page.id, shape, e)}
+                    {page.shapes.map((shape) => (
+                      <div
+                        key={shape.id}
+                        onMouseDown={(e) => handleShapeMouseDown(page.id, shape, e)}
+                        style={{
+                          position: "absolute",
+                          left: `${shape.x * 100}%`,
+                          top: `${shape.y * 100}%`,
+                          transform: "translate(-50%, -50%)",
+                          width: `${shape.width}px`,
+                          height: `${shape.height}px`,
+                          backgroundColor: "#ffffff",
+                          boxShadow: "0 0 0 1px #e5e7eb",
+                          borderRadius: "4px",
+                          padding: "4px 6px",
+                          boxSizing: "border-box",
+                          overflow: "auto",
+                          cursor: "move",
+                        }}
+                      >
+                        {/* 삭제 버튼 */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveShape(page.id, shape.id);
+                          }}
                           style={{
                             position: "absolute",
-                            left: `${shape.x * 100}%`,
-                            top: `${shape.y * 100}%`,
-                            transform: "translate(-50%, -50%)",
-                            width: `${shape.width}px`,
-                            height: `${shape.height}px`,
-                            backgroundColor: "#ffffff",
-                            boxShadow: "0 0 0 1px #e5e7eb",
-                            borderRadius: "4px",
-                            padding: "4px 6px",
-                            boxSizing: "border-box",
-                            overflow: "auto",
-                            cursor: "move",
+                            top: 2,
+                            right: 2,
+                            border: "none",
+                            background: "rgba(248,250,252,0.9)",
+                            borderRadius: "999px",
+                            padding: "0 5px",
+                            fontSize: "10px",
+                            cursor: "pointer",
+                            color: "#9ca3af",
+                            zIndex: 11, // 가장 위에 오도록
                           }}
                         >
-                          {/* 삭제 버튼 */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveShape(page.id, shape.id);
-                            }}
-                            style={{
-                              position: "absolute",
-                              top: 2,
-                              right: 2,
-                              border: "none",
-                              background: "rgba(248,250,252,0.9)",
-                              borderRadius: "999px",
-                              padding: "0 5px",
-                              fontSize: "10px",
-                              cursor: "pointer",
-                              color: "#9ca3af",
-                              zIndex: 11, // 가장 위에 오도록
-                            }}
-                          >
-                            ✕
-                          </button>
+                          ✕
+                        </button>
 
-                          {/* 리사이즈 핸들 (오른쪽 아래) */}
-                          <div
-                            onMouseDown={(e) =>
-                              handleResizeMouseDown(page.id, shape, e)
-                            }
-                            style={{
-                              position: "absolute",
-                              right: 2,
-                              bottom: 2,
-                              width: 10,
-                              height: 10,
-                              borderRadius: "2px",
-                              backgroundColor: "rgba(156,163,175,0.9)",
-                              cursor: "nwse-resize",
-                              zIndex: 11, // 가장 위에 오도록
-                            }}
-                          />
+                        {/* 리사이즈 핸들 (오른쪽 아래) */}
+                        <div
+                          onMouseDown={(e) =>
+                            handleResizeMouseDown(page.id, shape, e)
+                          }
+                          style={{
+                            position: "absolute",
+                            right: 2,
+                            bottom: 2,
+                            width: 10,
+                            height: 10,
+                            borderRadius: "2px",
+                            backgroundColor: "rgba(156,163,175,0.9)",
+                            cursor: "nwse-resize",
+                            zIndex: 11, // 가장 위에 오도록
+                          }}
+                        />
 
-                          <div
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                            }}
-                          >
-                            {renderStep6SectionVisual(shape.meta || {})}
-                          </div>
+                        <div
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                          }}
+                        >
+                          {renderStep6SectionVisual(shape.meta || {})}
                         </div>
-                      ))}
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>

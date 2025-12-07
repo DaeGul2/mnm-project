@@ -1101,6 +1101,7 @@ export default function Step6StatsAndCharts({
   }, [groupData]);
 
   // ✅ ReportEditor에서 그래프/표 다시 그릴 수 있도록, 그룹별 통계 스냅샷 저장용
+  // ✅ ReportEditor에서 그래프/표 다시 그릴 수 있도록, 그룹별 통계 스냅샷 저장용
   const perGroupStats = useMemo(() => {
     const result = {};
 
@@ -1109,6 +1110,7 @@ export default function Step6StatsAndCharts({
 
       const includedFields = includedFieldsByGroup[groupName] || [];
 
+      // 총점 배열
       const totalScores = candidates
         .map((c) => c.totalScore)
         .filter((v) => v !== null && v !== undefined);
@@ -1123,17 +1125,68 @@ export default function Step6StatsAndCharts({
         .map((c) => c.totalScore)
         .filter((v) => v !== null && v !== undefined);
 
-      const phaseTotalAvgData = [
-        {
-          phase: "합격",
-          avg: passScores.length ? mean(passScores) : null,
-        },
-        {
-          phase: "불합격",
-          avg: failScores.length ? mean(failScores) : null,
-        },
-      ].filter((d) => d.avg !== null);
+      const n = candidates.length;
 
+      // ✅ 총점 요약 통계 (Step6에서 보던 개요 그대로)
+      const avgTotal = totalScores.length ? mean(totalScores) : null;
+      const medianTotal = totalScores.length ? median(totalScores) : null;
+      const stdTotal = totalScores.length ? stdDev(totalScores) : null;
+      const maxTotal =
+        totalScores.length > 0 ? Math.max(...totalScores) : null;
+      const minTotal =
+        totalScores.length > 0 ? Math.min(...totalScores) : null;
+
+      // 합격자 기준 최저점(커트라인)
+      let cutoff = null;
+      if (passScores.length > 0) {
+        cutoff = Math.min(...passScores);
+      }
+
+      // 합격컷 상위 %
+      let cutoffPercent = null;
+      if (cutoff != null && totalScores.length > 0) {
+        const nAboveCut = totalScores.filter((s) => s >= cutoff).length;
+        cutoffPercent = (nAboveCut / totalScores.length) * 100;
+      }
+
+      // 전형 합격률
+      const passRate =
+        n > 0 ? (passCandidates.length / n) * 100 : null;
+
+      // 불합격자 기준 최고점
+      const bestFailTotal =
+        failScores.length > 0 ? Math.max(...failScores) : null;
+
+      // ✅ Editor에서 그대로 재사용할 "각 분야별 요약 통계" 스냅샷
+      const summaryStats = {
+        n,              // 통계 대상 인원
+        avgTotal,       // 총점 평균
+        medianTotal,    // 총점 중앙값
+        stdTotal,       // 총점 표준편차
+        maxTotal,       // 최고점
+        minTotal,       // 최저점
+        cutoff,         // 합격자 기준 최저점(커트라인)
+        cutoffPercent,  // 합격컷 상위 %
+        passRate,       // 전형 합격률(%)
+        bestFailTotal,  // 불합격자 기준 최고점
+      };
+
+      // 전형 결과별 합/불 총점 평균
+      const phaseTotalAvgData = [];
+      if (passScores.length > 0) {
+        phaseTotalAvgData.push({
+          phase: "합격",
+          avg: mean(passScores),
+        });
+      }
+      if (failScores.length > 0) {
+        phaseTotalAvgData.push({
+          phase: "불합격",
+          avg: mean(failScores),
+        });
+      }
+
+      // 평가항목별 합격/불합격 평균 + 상관계수
       const fieldStats = includedFields.map((field) => {
         const passFieldScores = passCandidates
           .map((c) => c.evalScores[field])
@@ -1148,6 +1201,7 @@ export default function Step6StatsAndCharts({
         candidates.forEach((c) => {
           const v = c.evalScores[field];
           if (v === null || v === undefined || !isNumericLike(v)) return;
+          // 합격: 1, 불합격: 0
           if (c.phaseRole === "합격") {
             corrX.push(Number(v));
             corrY.push(1);
@@ -1170,6 +1224,7 @@ export default function Step6StatsAndCharts({
         };
       });
 
+      // 최종 합격 vs 최종 불합격(전형 합격) 비교
       const finalPass = candidates.filter((c) => c.finalRole === "합격");
       const finalFailPhasePass = candidates.filter(
         (c) => c.finalRole === "불합격" && c.phaseRole === "합격"
@@ -1197,6 +1252,7 @@ export default function Step6StatsAndCharts({
       }
 
       result[groupName] = {
+        summaryStats,       // ✅ 새로 추가
         phaseTotalAvgData,
         fieldStats,
         finalCompareData,
@@ -1205,6 +1261,7 @@ export default function Step6StatsAndCharts({
 
     return result;
   }, [groupData, includedFieldsByGroup]);
+
 
   const handleToggleField = (groupName, field) => () => {
     setIncludedFieldsByGroup((prev) => {
