@@ -248,6 +248,133 @@ function CopyableSection({
   );
 }
 
+// 🔹 HTML 해석 입력/프리뷰 공통 컴포넌트
+function HtmlInterpretationEditor({
+  label = "해석",
+  value,
+  onChange,
+  readOnly,
+  compact,
+}) {
+  const [mode, setMode] = useState("edit");
+  const effectiveMode = readOnly ? "preview" : mode;
+
+  const handleChange = (e) => {
+    onChange?.(e.target.value);
+  };
+
+  const buildPreviewHtml = () => {
+    const raw = value || "";
+    if (!raw.trim()) {
+      return `<p style="margin:0;color:#9ca3af;font-size:12px;">해석을 입력하면 이 영역에 표시됩니다.</p>`;
+    }
+    // 태그가 있으면 그대로 렌더, 없으면 줄바꿈만 <br>로 치환
+    if (raw.includes("<")) {
+      return raw;
+    }
+    return raw.replace(/\n/g, "<br />");
+  };
+
+  const previewHtml = buildPreviewHtml();
+
+  return (
+    <div
+      style={{
+        marginTop: compact ? 8 : 12,
+        padding: compact ? "8px 10px" : "10px 12px",
+        borderRadius: 8,
+        border: "1px solid #e0e7ff",
+        backgroundColor: "#f8f9ff",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 6,
+          gap: 8,
+        }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 600 }}>{label}</span>
+        {!readOnly && (
+          <div
+            style={{
+              display: "inline-flex",
+              borderRadius: 999,
+              border: "1px solid #cbd5e1",
+              overflow: "hidden",
+              fontSize: 11,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setMode("edit")}
+              style={{
+                padding: "2px 8px",
+                border: "none",
+                cursor: "pointer",
+                backgroundColor:
+                  effectiveMode === "edit" ? "#e0edff" : "transparent",
+              }}
+            >
+              편집
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("preview")}
+              style={{
+                padding: "2px 8px",
+                border: "none",
+                cursor: "pointer",
+                backgroundColor:
+                  effectiveMode === "preview" ? "#e0edff" : "transparent",
+              }}
+            >
+              미리보기
+            </button>
+          </div>
+        )}
+      </div>
+      {effectiveMode === "edit" && !readOnly && (
+        <textarea
+          value={value || ""}
+          onChange={handleChange}
+          placeholder="HTML 또는 일반 텍스트로 자유롭게 입력하세요."
+          style={{
+            width: "100%",
+            minHeight: 70,
+            fontSize: 12,
+            lineHeight: 1.5,
+            resize: "vertical",
+            borderRadius: 6,
+            border: "1px solid #e5e7eb",
+            padding: "6px 8px",
+            fontFamily:
+              'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          }}
+        />
+      )}
+      {(effectiveMode === "preview" || readOnly) && (
+        <div
+          style={{
+            minHeight: 40,
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: "#111827",
+            backgroundColor: "#fff",
+            borderRadius: 6,
+            border: "1px solid #e5e7eb",
+            padding: "8px 10px",
+            whiteSpace: "normal",
+          }}
+          dangerouslySetInnerHTML={{ __html: previewHtml }}
+        />
+      )}
+    </div>
+  );
+}
+
 // 간단한 통계 계산 유틸
 function mean(arr) {
   if (!arr.length) return null;
@@ -674,8 +801,8 @@ function Step6ChartToolbox({ config, onApply }) {
                 {align === "left"
                   ? "좌"
                   : align === "center"
-                    ? "가운데"
-                    : "우"}
+                  ? "가운데"
+                  : "우"}
               </button>
             ))}
           </div>
@@ -914,6 +1041,14 @@ export default function Step6StatsAndCharts({
   const [sectionTitle, setSectionTitle] = useState(
     "지원분야별 통계 · 그래프"
   );
+
+  // 🔹 해석(HTML) 저장용 상태
+  // overview: { crossGroupSummary: "<p>...</p>" }
+  // perGroup: { [groupName]: { summaryStats, phaseTotalAvg, fieldStats, finalCompare } }
+  const [interpretations, setInterpretations] = useState({
+    overview: { crossGroupSummary: "" },
+    perGroup: {},
+  });
 
   // 🔹 보고서(PDF) 모드 상태
   const [isReportMode, setIsReportMode] = useState(false);
@@ -1570,7 +1705,6 @@ export default function Step6StatsAndCharts({
     }
   };
 
-
   // ✅ Step6 계산 결과 저장용 payload 생성
   const buildCalcPayload = () => ({
     config: {
@@ -1578,7 +1712,8 @@ export default function Step6StatsAndCharts({
       includedFieldsByGroup,
       groupOrder,
       openGroups,
-      sectionTitle, // 🔹 여기 추가
+      sectionTitle, // 🔹 여기 유지
+      interpretations, // 🔹 해석까지 같이 저장
     },
     stats: {
       crossGroupSummary,
@@ -1662,6 +1797,9 @@ export default function Step6StatsAndCharts({
           }
           if (config.sectionTitle) {
             setSectionTitle(config.sectionTitle);
+          }
+          if (config.interpretations) {
+            setInterpretations(config.interpretations);
           }
         }
 
@@ -1958,8 +2096,8 @@ export default function Step6StatsAndCharts({
                             backgroundColor: isDragging
                               ? "#e3f2fd"
                               : tableUseZebra && rowIndex % 2 === 1
-                                ? zebraRowColor
-                                : "transparent",
+                              ? zebraRowColor
+                              : "transparent",
                           }}
                         >
                           <td
@@ -2044,6 +2182,20 @@ export default function Step6StatsAndCharts({
                   </tbody>
                 </table>
               </div>
+              <HtmlInterpretationEditor
+                label="지원분야 간 요약 비교 해석"
+                value={interpretations.overview?.crossGroupSummary || ""}
+                onChange={(val) =>
+                  setInterpretations((prev) => ({
+                    ...prev,
+                    overview: {
+                      ...(prev.overview || {}),
+                      crossGroupSummary: val,
+                    },
+                  }))
+                }
+                readOnly={isReportMode}
+              />
             </CopyableSection>
           </div>
         )}
@@ -2195,6 +2347,9 @@ export default function Step6StatsAndCharts({
           const handleDownloadAll = () => {
             handleDownloadAllSections(groupName);
           };
+
+          const groupInterpretations =
+            interpretations.perGroup?.[groupName] || {};
 
           return (
             <div
@@ -2422,8 +2577,8 @@ export default function Step6StatsAndCharts({
                                     "불합격자 기준 최고점",
                                     failScores.length
                                       ? Math.max(
-                                        ...failScores
-                                      ).toFixed(2)
+                                          ...failScores
+                                        ).toFixed(2)
                                       : "-",
                                   ],
                                   [
@@ -2492,6 +2647,24 @@ export default function Step6StatsAndCharts({
                           </div>
                         )}
                       </div>
+                      <HtmlInterpretationEditor
+                        label="요약 통계 해석"
+                        value={groupInterpretations.summaryStats || ""}
+                        onChange={(val) =>
+                          setInterpretations((prev) => ({
+                            ...prev,
+                            perGroup: {
+                              ...(prev.perGroup || {}),
+                              [groupName]: {
+                                ...(prev.perGroup?.[groupName] || {}),
+                                summaryStats: val,
+                              },
+                            },
+                          }))
+                        }
+                        readOnly={isReportMode}
+                        compact
+                      />
                     </CopyableSection>
 
                     {/* 전형 결과별 총점 평균 (그래프) */}
@@ -2563,6 +2736,24 @@ export default function Step6StatsAndCharts({
                           </ResponsiveContainer>
                         </div>
                       )}
+                      <HtmlInterpretationEditor
+                        label="전형 결과별 합/불 총점 평균 해석"
+                        value={groupInterpretations.phaseTotalAvg || ""}
+                        onChange={(val) =>
+                          setInterpretations((prev) => ({
+                            ...prev,
+                            perGroup: {
+                              ...(prev.perGroup || {}),
+                              [groupName]: {
+                                ...(prev.perGroup?.[groupName] || {}),
+                                phaseTotalAvg: val,
+                              },
+                            },
+                          }))
+                        }
+                        readOnly={isReportMode}
+                        compact
+                      />
                     </CopyableSection>
                   </div>
 
@@ -2642,7 +2833,7 @@ export default function Step6StatsAndCharts({
                                   style={{
                                     backgroundColor:
                                       tableUseZebra &&
-                                        rowIndex % 2 === 1
+                                      rowIndex % 2 === 1
                                         ? zebraRowColor
                                         : "transparent",
                                   }}
@@ -2762,6 +2953,24 @@ export default function Step6StatsAndCharts({
                         </div>
                       </>
                     )}
+                    <HtmlInterpretationEditor
+                      label="평가항목별 합/불 평균 및 상관계수 해석"
+                      value={groupInterpretations.fieldStats || ""}
+                      onChange={(val) =>
+                        setInterpretations((prev) => ({
+                          ...prev,
+                          perGroup: {
+                            ...(prev.perGroup || {}),
+                            [groupName]: {
+                              ...(prev.perGroup?.[groupName] || {}),
+                              fieldStats: val,
+                            },
+                          },
+                        }))
+                      }
+                      readOnly={isReportMode}
+                      compact
+                    />
                   </CopyableSection>
 
                   {/* 최종 결과 비교 그래프 */}
@@ -2834,6 +3043,24 @@ export default function Step6StatsAndCharts({
                         </ResponsiveContainer>
                       </div>
                     )}
+                    <HtmlInterpretationEditor
+                      label="채용 결과별 총점 비교 해석"
+                      value={groupInterpretations.finalCompare || ""}
+                      onChange={(val) =>
+                        setInterpretations((prev) => ({
+                          ...prev,
+                          perGroup: {
+                            ...(prev.perGroup || {}),
+                            [groupName]: {
+                              ...(prev.perGroup?.[groupName] || {}),
+                              finalCompare: val,
+                            },
+                          },
+                        }))
+                      }
+                      readOnly={isReportMode}
+                      compact
+                    />
                   </CopyableSection>
                 </div>
               )}
