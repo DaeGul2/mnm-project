@@ -16,34 +16,15 @@ import {
 import { downloadStep6FullReportZip } from "../../utils/step6ReportDownloadUtils";
 import LoadingSpinner from "../common/LoadingSpinner";
 // ✅ Step6 계산 결과 저장/조회 서비스
-import {
-  getRoundCalc,
-  saveRoundCalc,
-} from "../../services/evalRoundService";
+import { getRoundCalc, saveRoundCalc } from "../../services/evalRoundService";
 import { makeReportPDF } from "../../utils/MakeReportPDF"; // 🔹 추가
-
-const COLORS = {
-  primary: "#1976d2", // 합격: 파란색
-  secondary: "#8b1a3d", // 불합격: 버건디색
-  muted: "#90a4ae", // 회청색 (보조용)
-};
-
-// ✅ 스타일 기본값 (표/그래프 관련 설정 한 번에 관리)
-const defaultStyleConfig = {
-  barSize: 24,
-  tableWidthScale: 100,
-  chartWidthScale: 100,
-  tableHeaderBold: true,
-  tableHeaderBg: "#f5f5f5",
-  tableUseZebra: true,
-  zebraRowColor: "#edf2ff", // 지브라 행 배경 (더 진하게)
-  zebraBorderColor: "#b0b7c9", // 지브라 세로줄 색 (더 선명)
-  showCartesianGrid: true,
-  showLegend: true,
-  chartHeight: 260,
-  labelFontSize: 11,
-  tableNumericAlign: "right",
-};
+import { COLORS, defaultStyleConfig } from "../../utils/step6StyleConfig";
+import {
+  CopyAsImageButton,
+  CopyableSection,
+  HtmlInterpretationEditor,
+  Step6ChartToolbox,
+} from "./Step6SharedComponents";
 
 // 🔹 Step6 화면에서 한 "페이지"당 허용할 대략적인 총 높이(px)
 const PAGE_HEIGHT_LIMIT_PX = 1200;
@@ -114,265 +95,6 @@ function isNumericLike(value) {
 function toNumberOrNull(value) {
   if (!isNumericLike(value)) return null;
   return Number(String(value).replace(/,/g, ""));
-}
-
-// 클립보드로 "이미지 복사" 버튼
-function CopyAsImageButton({ targetRef, label = "클립보드 복사" }) {
-  const handleCopy = async () => {
-    const node = targetRef?.current;
-    if (!node) {
-      alert("복사할 영역을 찾을 수 없습니다.");
-      return;
-    }
-    try {
-      const canvas = await html2canvas(node, { scale: 2 });
-      const blob = await new Promise((resolve) =>
-        canvas.toBlob(resolve, "image/png")
-      );
-      if (!blob) {
-        alert("이미지 변환에 실패했습니다.");
-        return;
-      }
-
-      const clipboard = navigator.clipboard;
-      const ClipboardItemCtor = window.ClipboardItem;
-
-      if (clipboard && clipboard.write && ClipboardItemCtor) {
-        try {
-          const item = new ClipboardItemCtor({ [blob.type]: blob });
-          await clipboard.write([item]);
-          alert(
-            "이미지 형태로 클립보드에 복사했습니다. (Ctrl+V로 붙여넣기)"
-          );
-        } catch (err) {
-          console.error(err);
-          const url = URL.createObjectURL(blob);
-          window.open(url, "_blank");
-        }
-      } else {
-        const url = URL.createObjectURL(blob);
-        window.open(url, "_blank");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("이미지 복사 중 오류가 발생했습니다.");
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      style={{
-        padding: "4px 10px",
-        borderRadius: "999px",
-        border: "1px solid #666",
-        backgroundColor: "#fff",
-        fontSize: "11px",
-        cursor: "pointer",
-      }}
-    >
-      📋 {label}
-    </button>
-  );
-}
-
-// 특정 섹션을 캡쳐 가능한 블록으로 감싸기
-function CopyableSection({
-  title,
-  children,
-  extraRight,
-  onRegisterSection,
-  sectionId,
-  sectionType, // "표" 또는 "그래프"
-  draggable,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  hideToolbar = false, // 🔹 추가: 보고서 모드에서 툴바 숨김
-}) {
-  // 바깥 카드(섹션 전체 박스)용 ref
-  const containerRef = useRef(null);
-  // 캡쳐 대상(그래프/표 내용 영역)용 ref
-  const contentRef = useRef(null);
-
-  useEffect(() => {
-    if (onRegisterSection && sectionId) {
-      onRegisterSection({
-        id: sectionId,
-        title,
-        type: sectionType || "표",
-        // ✅ 캡쳐/다운로드에는 "내용 영역" 사용
-        ref: contentRef,
-      });
-    }
-  }, [onRegisterSection, sectionId, sectionType, title]);
-
-  return (
-    <div
-      ref={containerRef}
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      style={{
-        border: "1px solid #e0e0e0",
-        borderRadius: "10px",
-        padding: "10px 12px",
-        marginBottom: "16px",
-        backgroundColor: "#fafafa",
-        resize: "horizontal",
-        overflow: "auto",
-        minWidth: 400,
-        maxWidth: "100%",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "8px",
-        }}
-      >
-        <div style={{ fontWeight: 600, fontSize: "14px" }}>{title}</div>
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          {extraRight}
-          {/* ✅ 섹션 복사는 바깥 박스 말고 "내용 영역"만 캡쳐 */}
-          {!hideToolbar && <CopyAsImageButton targetRef={contentRef} />}
-        </div>
-      </div>
-      {/* ✅ 여기부터가 실제 캡쳐 대상 (그래프/표 자체) */}
-      <div ref={contentRef}>{children}</div>
-    </div>
-  );
-}
-
-// 🔹 HTML 해석 입력/프리뷰 공통 컴포넌트
-function HtmlInterpretationEditor({
-  label = "해석",
-  value,
-  onChange,
-  readOnly,
-  compact,
-}) {
-  const [mode, setMode] = useState("edit");
-  const effectiveMode = readOnly ? "preview" : mode;
-
-  const handleChange = (e) => {
-    onChange?.(e.target.value);
-  };
-
-  const buildPreviewHtml = () => {
-    const raw = value || "";
-    if (!raw.trim()) {
-      return `<p style="margin:0;color:#9ca3af;font-size:12px;">해석을 입력하면 이 영역에 표시됩니다.</p>`;
-    }
-    // 태그가 있으면 그대로 렌더, 없으면 줄바꿈만 <br>로 치환
-    if (raw.includes("<")) {
-      return raw;
-    }
-    return raw.replace(/\n/g, "<br />");
-  };
-
-  const previewHtml = buildPreviewHtml();
-
-  return (
-    <div
-      style={{
-        marginTop: compact ? 8 : 12,
-        padding: compact ? "8px 10px" : "10px 12px",
-        borderRadius: 8,
-        border: "1px solid #e0e7ff",
-        backgroundColor: "#f8f9ff",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 6,
-          gap: 8,
-        }}
-      >
-        <span style={{ fontSize: 12, fontWeight: 600 }}>{label}</span>
-        {!readOnly && (
-          <div
-            style={{
-              display: "inline-flex",
-              borderRadius: 999,
-              border: "1px solid #cbd5e1",
-              overflow: "hidden",
-              fontSize: 11,
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setMode("edit")}
-              style={{
-                padding: "2px 8px",
-                border: "none",
-                cursor: "pointer",
-                backgroundColor:
-                  effectiveMode === "edit" ? "#e0edff" : "transparent",
-              }}
-            >
-              편집
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("preview")}
-              style={{
-                padding: "2px 8px",
-                border: "none",
-                cursor: "pointer",
-                backgroundColor:
-                  effectiveMode === "preview" ? "#e0edff" : "transparent",
-              }}
-            >
-              미리보기
-            </button>
-          </div>
-        )}
-      </div>
-      {effectiveMode === "edit" && !readOnly && (
-        <textarea
-          value={value || ""}
-          onChange={handleChange}
-          placeholder="HTML 또는 일반 텍스트로 자유롭게 입력하세요."
-          style={{
-            width: "100%",
-            minHeight: 70,
-            fontSize: 12,
-            lineHeight: 1.5,
-            resize: "vertical",
-            borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            padding: "6px 8px",
-            fontFamily:
-              'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-          }}
-        />
-      )}
-      {(effectiveMode === "preview" || readOnly) && (
-        <div
-          style={{
-            minHeight: 40,
-            fontSize: 12,
-            lineHeight: 1.5,
-            color: "#111827",
-            backgroundColor: "#fff",
-            borderRadius: 6,
-            border: "1px solid #e5e7eb",
-            padding: "8px 10px",
-            whiteSpace: "normal",
-          }}
-          dangerouslySetInnerHTML={{ __html: previewHtml }}
-        />
-      )}
-    </div>
-  );
 }
 
 // 간단한 통계 계산 유틸
@@ -468,562 +190,6 @@ const renderPassFailLegend = () => {
   );
 };
 
-// ✅ Step6 전용 그래프/표 도구 모음 (설정은 로컬에서만 바뀌고, "적용" 시에만 부모에 반영)
-function Step6ChartToolbox({ config, onApply }) {
-  const [draft, setDraft] = useState(config);
-
-  useEffect(() => {
-    setDraft(config);
-  }, [config]);
-
-  const updateDraft = (patch) => {
-    setDraft((prev) => ({ ...prev, ...patch }));
-  };
-
-  const handleRangeNumber = (key, min, max) => (e) => {
-    const value = Number(e.target.value);
-    if (!Number.isFinite(value)) return;
-    const clamped = Math.min(max, Math.max(min, value));
-    updateDraft({ [key]: clamped });
-  };
-
-  const handleColor = (key) => (e) => {
-    updateDraft({ [key]: e.target.value });
-  };
-
-  const handleCheckbox = (key) => () => {
-    setDraft((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  const handleApply = () => {
-    onApply(draft);
-  };
-
-  const handleReset = () => {
-    setDraft(defaultStyleConfig);
-    onApply(defaultStyleConfig);
-  };
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        top: "110px",
-        right: "24px",
-        zIndex: 2000,
-        width: "250px",
-        maxWidth: "80vw",
-        padding: "10px 12px",
-        borderRadius: "14px",
-        border: "1px solid #d0d7e2",
-        backgroundColor: "rgba(247, 249, 252, 0.96)",
-        boxShadow: "0 4px 14px rgba(0,0,0,0.08)",
-        fontSize: "12px",
-        backdropFilter: "blur(6px)",
-      }}
-    >
-      <div
-        style={{
-          fontWeight: 600,
-          fontSize: "13px",
-          marginBottom: "8px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "6px",
-        }}
-      >
-        <span>📊 그래프 · 표 도구</span>
-        <button
-          type="button"
-          onClick={handleReset}
-          style={{
-            fontSize: "10px",
-            border: "none",
-            background: "none",
-            color: "#356ac3",
-            cursor: "pointer",
-            textDecoration: "underline",
-          }}
-        >
-          기본값
-        </button>
-      </div>
-
-      {/* 막대 너비 */}
-      <div
-        style={{
-          marginBottom: "8px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "4px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>막대 너비</span>
-          <span
-            style={{
-              padding: "2px 6px",
-              borderRadius: "999px",
-              border: "1px solid #ccc",
-              backgroundColor: "#fff",
-            }}
-          >
-            {draft.barSize}px
-          </span>
-        </div>
-        <input
-          type="range"
-          min={8}
-          max={60}
-          value={draft.barSize}
-          onChange={handleRangeNumber("barSize", 8, 60)}
-        />
-      </div>
-
-      {/* 표 너비 */}
-      <div
-        style={{
-          marginBottom: "8px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "4px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>표 너비</span>
-          <span
-            style={{
-              padding: "2px 6px",
-              borderRadius: "999px",
-              border: "1px solid #ccc",
-              backgroundColor: "#fff",
-            }}
-          >
-            {draft.tableWidthScale}%
-          </span>
-        </div>
-        <input
-          type="range"
-          min={60}
-          max={160}
-          value={draft.tableWidthScale}
-          onChange={handleRangeNumber("tableWidthScale", 60, 160)}
-        />
-      </div>
-
-      {/* 그래프 전체 너비 */}
-      <div
-        style={{
-          marginBottom: "8px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "4px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>그래프 너비</span>
-          <span
-            style={{
-              padding: "2px 6px",
-              borderRadius: "999px",
-              border: "1px solid#ccc",
-              backgroundColor: "#fff",
-            }}
-          >
-            {draft.chartWidthScale}%
-          </span>
-        </div>
-        <input
-          type="range"
-          min={60}
-          max={160}
-          value={draft.chartWidthScale}
-          onChange={handleRangeNumber("chartWidthScale", 60, 160)}
-        />
-      </div>
-
-      {/* 그래프 높이 */}
-      <div
-        style={{
-          marginBottom: "8px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "4px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>그래프 높이</span>
-          <span
-            style={{
-              padding: "2px 6px",
-              borderRadius: "999px",
-              border: "1px solid#ccc",
-              backgroundColor: "#fff",
-            }}
-          >
-            {draft.chartHeight}px
-          </span>
-        </div>
-        <input
-          type="range"
-          min={200}
-          max={360}
-          value={draft.chartHeight}
-          onChange={handleRangeNumber("chartHeight", 200, 360)}
-        />
-      </div>
-
-      {/* 값 라벨 폰트 크기 */}
-      <div
-        style={{
-          marginBottom: "8px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "4px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>값 라벨 크기</span>
-          <span
-            style={{
-              padding: "2px 6px",
-              borderRadius: "999px",
-              border: "1px solid#ccc",
-              backgroundColor: "#fff",
-            }}
-          >
-            {draft.labelFontSize}px
-          </span>
-        </div>
-        <input
-          type="range"
-          min={10}
-          max={16}
-          value={draft.labelFontSize}
-          onChange={handleRangeNumber("labelFontSize", 10, 16)}
-        />
-      </div>
-
-      {/* 표 스타일 */}
-      <div
-        style={{
-          marginTop: "8px",
-          paddingTop: "8px",
-          borderTop: "1px dashed #cbd5e1",
-          display: "flex",
-          flexDirection: "column",
-          gap: "6px",
-        }}
-      >
-        <div style={{ fontWeight: 600, fontSize: "12px" }}>표 스타일</div>
-
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            fontSize: "12px",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={draft.tableHeaderBold}
-            onChange={handleCheckbox("tableHeaderBold")}
-          />
-          <span>헤더 볼드 처리</span>
-        </label>
-
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "4px",
-          }}
-        >
-          <span>숫자 열 정렬</span>
-          <div
-            style={{
-              display: "flex",
-              gap: "4px",
-              marginTop: "2px",
-            }}
-          >
-            {["left", "center", "right"].map((align) => (
-              <button
-                key={align}
-                type="button"
-                onClick={() => updateDraft({ tableNumericAlign: align })}
-                style={{
-                  flex: 1,
-                  padding: "2px 4px",
-                  fontSize: "11px",
-                  borderRadius: "999px",
-                  border:
-                    draft.tableNumericAlign === align
-                      ? "1px solid #356ac3"
-                      : "1px solid #ccc",
-                  backgroundColor:
-                    draft.tableNumericAlign === align ? "#e3f2fd" : "#fff",
-                  cursor: "pointer",
-                }}
-              >
-                {align === "left"
-                  ? "좌"
-                  : align === "center"
-                  ? "가운데"
-                  : "우"}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "6px",
-          }}
-        >
-          <span>헤더 배경색</span>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-            }}
-          >
-            <input
-              type="color"
-              value={draft.tableHeaderBg}
-              onChange={handleColor("tableHeaderBg")}
-              style={{
-                width: 24,
-                height: 18,
-                padding: 0,
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-              }}
-            />
-            <span
-              style={{
-                fontFamily: "monospace",
-                fontSize: "11px",
-              }}
-            >
-              {draft.tableHeaderBg}
-            </span>
-          </div>
-        </div>
-
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            fontSize: "12px",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={draft.tableUseZebra}
-            onChange={handleCheckbox("tableUseZebra")}
-          />
-          <span>지브라 행 + 세로 줄</span>
-        </label>
-
-        {draft.tableUseZebra && (
-          <>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "6px",
-              }}
-            >
-              <span>지브라 행 색</span>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
-              >
-                <input
-                  type="color"
-                  value={draft.zebraRowColor}
-                  onChange={handleColor("zebraRowColor")}
-                  style={{
-                    width: 24,
-                    height: 18,
-                    padding: 0,
-                    border: "none",
-                    background: "transparent",
-                    cursor: "pointer",
-                  }}
-                />
-                <span
-                  style={{
-                    fontFamily: "monospace",
-                    fontSize: "11px",
-                  }}
-                >
-                  {draft.zebraRowColor}
-                </span>
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "6px",
-              }}
-            >
-              <span>세로 줄 색</span>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
-              >
-                <input
-                  type="color"
-                  value={draft.zebraBorderColor}
-                  onChange={handleColor("zebraBorderColor")}
-                  style={{
-                    width: 24,
-                    height: 18,
-                    padding: 0,
-                    border: "none",
-                    background: "transparent",
-                    cursor: "pointer",
-                  }}
-                />
-                <span
-                  style={{
-                    fontFamily: "monospace",
-                    fontSize: "11px",
-                  }}
-                >
-                  {draft.zebraBorderColor}
-                </span>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* 그래프 옵션 */}
-      <div
-        style={{
-          marginTop: "8px",
-          paddingTop: "8px",
-          borderTop: "1px dashed #cbd5e1",
-          display: "flex",
-          flexDirection: "column",
-          gap: "6px",
-        }}
-      >
-        <div style={{ fontWeight: 600, fontSize: "12px" }}>그래프 옵션</div>
-
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            fontSize: "12px",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={draft.showCartesianGrid}
-            onChange={handleCheckbox("showCartesianGrid")}
-          />
-          <span>배경 격자 보이기</span>
-        </label>
-
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            fontSize: "12px",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={draft.showLegend}
-            onChange={handleCheckbox("showLegend")}
-          />
-          <span>범례(legend) 보이기</span>
-        </label>
-      </div>
-
-      {/* 적용 버튼 */}
-      <div
-        style={{
-          marginTop: "10px",
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: "6px",
-        }}
-      >
-        <button
-          type="button"
-          onClick={handleApply}
-          style={{
-            padding: "4px 10px",
-            borderRadius: "999px",
-            border: "1px solid #356ac3",
-            backgroundColor: "#356ac3",
-            color: "#fff",
-            fontSize: "11px",
-            cursor: "pointer",
-          }}
-        >
-          적용
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export default function Step6StatsAndCharts({
   rows,
   mapping,
@@ -1038,9 +204,7 @@ export default function Step6StatsAndCharts({
   // ✅ 스타일 설정 (실제 반영되는 값)
   const [styleConfig, setStyleConfig] = useState(defaultStyleConfig);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
-  const [sectionTitle, setSectionTitle] = useState(
-    "지원분야별 통계 · 그래프"
-  );
+  const [sectionTitle, setSectionTitle] = useState("지원분야별 통계 · 그래프");
 
   // 🔹 해석(HTML) 저장용 상태
   // overview: { crossGroupSummary: "<p>...</p>" }
@@ -1592,37 +756,50 @@ export default function Step6StatsAndCharts({
   };
 
   const handleDownloadWholeReport = async () => {
-    const overviewSectionsMap = globalSectionRefs.current || {};
-    const overviewSections = Object.values(overviewSectionsMap).sort((a, b) => {
-      if (a.id < b.id) return -1;
-      if (a.id > b.id) return 1;
-      return 0;
-    });
-
-    const groupEntries = Object.entries(groupSectionRefs.current || {});
-    const groupSections = groupEntries.map(([groupName, sectionMap]) => {
-      const sections = Object.values(sectionMap || {}).sort((a, b) => {
-        if (a.id < b.id) return -1;
-        if (a.id > b.id) return 1;
-        return 0;
-      });
-      return {
-        groupName,
-        sections,
-      };
-    });
-
-    const hasAnySection =
-      overviewSections.length > 0 ||
-      groupSections.some((g) => g.sections.length > 0);
-
-    if (!hasAnySection) {
-      alert("일괄 다운로드할 섹션을 찾을 수 없습니다.");
-      return;
-    }
+    // 현재 상태 백업
+    const prevPageIndex = currentPageIndex;
+    const prevIsPrintAll = isPrintAllPages;
+    const prevIsReportMode = isReportMode;
 
     try {
       setIsDownloadingAll(true);
+      // 🔹 전체 페이지 렌더 + 보고서 모드(편집 UI 숨김)
+      setIsPrintAllPages(true);
+      setIsReportMode(true);
+
+      // 렌더링/refs 등록될 시간 약간 기다리기
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      const overviewSectionsMap = globalSectionRefs.current || {};
+      const overviewSections = Object.values(overviewSectionsMap).sort(
+        (a, b) => {
+          if (a.id < b.id) return -1;
+          if (a.id > b.id) return 1;
+          return 0;
+        }
+      );
+
+      const groupEntries = Object.entries(groupSectionRefs.current || {});
+      const groupSections = groupEntries.map(([groupName, sectionMap]) => {
+        const sections = Object.values(sectionMap || {}).sort((a, b) => {
+          if (a.id < b.id) return -1;
+          if (a.id > b.id) return 1;
+          return 0;
+        });
+        return {
+          groupName,
+          sections,
+        };
+      });
+
+      const hasAnySection =
+        overviewSections.length > 0 ||
+        groupSections.some((g) => g.sections.length > 0);
+
+      if (!hasAnySection) {
+        alert("일괄 다운로드할 섹션을 찾을 수 없습니다.");
+        return;
+      }
 
       await downloadStep6FullReportZip({
         overviewSections,
@@ -1634,9 +811,14 @@ export default function Step6StatsAndCharts({
       console.error(err);
       alert("일괄 다운로드 중 오류가 발생했습니다.");
     } finally {
+      // 🔹 상태 원복
+      setIsPrintAllPages(prevIsPrintAll);
+      setIsReportMode(prevIsReportMode);
+      setCurrentPageIndex(prevPageIndex);
       setIsDownloadingAll(false);
     }
   };
+
 
   // 🔹 PDF "보고서화" 핸들러 (전체 페이지 기준)
   // 🔹 Step6의 "현재 페이지"들을 순서대로 캡쳐해서 PDF로 만드는 핸들러
@@ -2096,8 +1278,8 @@ export default function Step6StatsAndCharts({
                             backgroundColor: isDragging
                               ? "#e3f2fd"
                               : tableUseZebra && rowIndex % 2 === 1
-                              ? zebraRowColor
-                              : "transparent",
+                                ? zebraRowColor
+                                : "transparent",
                           }}
                         >
                           <td
@@ -2195,6 +1377,12 @@ export default function Step6StatsAndCharts({
                   }))
                 }
                 readOnly={isReportMode}
+                previewPayload={{
+                  role:
+                    "지원분야 간 요약 비교 표를 기반으로 전체 모집단 구조와 지원분야 간 차이를 해석할 때 사용하는 데이터입니다.",
+                  scope: "overview",
+                  data: crossGroupSummary, // 각 지원분야별 n, passRate, avgTotal, cutoff, cutoffPercent
+                }}
               />
             </CopyableSection>
           </div>
@@ -2350,7 +1538,7 @@ export default function Step6StatsAndCharts({
 
           const groupInterpretations =
             interpretations.perGroup?.[groupName] || {};
-
+          const statsSnapshot = perGroupStats[groupName] || {};
           return (
             <div
               key={groupName}
@@ -2577,8 +1765,8 @@ export default function Step6StatsAndCharts({
                                     "불합격자 기준 최고점",
                                     failScores.length
                                       ? Math.max(
-                                          ...failScores
-                                        ).toFixed(2)
+                                        ...failScores
+                                      ).toFixed(2)
                                       : "-",
                                   ],
                                   [
@@ -2664,7 +1852,15 @@ export default function Step6StatsAndCharts({
                         }
                         readOnly={isReportMode}
                         compact
+                        previewPayload={{
+                          role:
+                            "이 지원분야의 총점 분포(최고점, 최저점, 커트라인, 표준편차 등)를 요약적으로 해석할 때 사용하는 데이터입니다.",
+                          scope: "group",
+                          groupName,
+                          data: statsSnapshot.summaryStats || null,
+                        }}
                       />
+
                     </CopyableSection>
 
                     {/* 전형 결과별 총점 평균 (그래프) */}
@@ -2753,7 +1949,19 @@ export default function Step6StatsAndCharts({
                         }
                         readOnly={isReportMode}
                         compact
+                        previewPayload={{
+                          role:
+                            "이 해석은 전형 결과별 합/불 총점 평균 막대그래프를 설명하기 위한 것입니다. " +
+                            "data 배열의 각 원소는 { phase, avg } 구조이며, " +
+                            "phase 필드는 '합격' 또는 '불합격' 집단을 나타내고, " +
+                            "avg 필드는 해당 집단의 총점 평균(동일 점수 스케일에서의 평균값)을 의미합니다. ",
+                          scope: "group",
+                          groupName,
+                          // 🔹 이 그래프에서 실제로 사용 중인 원본 데이터
+                          data: phaseTotalAvgData,
+                        }}
                       />
+
                     </CopyableSection>
                   </div>
 
@@ -2833,7 +2041,7 @@ export default function Step6StatsAndCharts({
                                   style={{
                                     backgroundColor:
                                       tableUseZebra &&
-                                      rowIndex % 2 === 1
+                                        rowIndex % 2 === 1
                                         ? zebraRowColor
                                         : "transparent",
                                   }}
@@ -2970,7 +2178,22 @@ export default function Step6StatsAndCharts({
                       }
                       readOnly={isReportMode}
                       compact
+                      previewPayload={{
+                        role:
+                          "이 해석은 '평가항목별 합/불 평균 및 합격 공헌도(상관계수)' 표와 그래프를 설명하기 위한 것입니다. " +
+                          "data 는 각 평가항목에 대한 요약 통계를 담은 배열이며, 각 원소는 { field, passAvg, failAvg, corr } 구조를 가집니다. " +
+                          "• field: 평가항목 이름(예: 직무적합성, 경험·경력 등)으로, 표/그래프의 X축 라벨에 해당합니다. " +
+                          "• passAvg: 해당 항목 점수의 '전형 합격자' 평균값으로, 합격 집단의 평균 수준을 나타냅니다. " +
+                          "• failAvg: 해당 항목 점수의 '전형 불합격자' 평균값으로, 탈락 집단의 평균 수준을 나타냅니다. " +
+                          "• corr: 항목 점수와 전형 합격 여부(합격=1, 불합격=0) 사이의 상관계수로, 값이 클수록 이 항목이 합격/불합격을 더 잘 구분해주는 지표임을 의미합니다. " +
+                          "해석 시에는 passAvg와 failAvg의 격차가 큰 항목, corr 값이 높은 항목을 중심으로 '어떤 평가항목이 합격자를 가르는 핵심 요인인지'를 설명할 때 이 데이터를 사용합니다.",
+                        scope: "group",
+                        groupName,
+                        // perGroupStats에 정리돼 있으면 그걸 우선 사용, 아니면 현재 계산된 fieldStats 사용
+                        data: statsSnapshot.fieldStats || fieldStats,
+                      }}
                     />
+
                   </CopyableSection>
 
                   {/* 최종 결과 비교 그래프 */}
@@ -3060,6 +2283,19 @@ export default function Step6StatsAndCharts({
                       }
                       readOnly={isReportMode}
                       compact
+                      previewPayload={{
+                        role:
+                          "이 해석은 '채용 결과별 총점 비교' 그래프를 설명하기 위한 것입니다. " +
+                          "data 배열의 각 원소는 { group, avg } 구조를 가지며, 각 필드의 의미는 다음과 같습니다.\n\n" +
+                          "• group: 비교 대상 집단 라벨입니다.\n" +
+                          "   - '최종 합격' : 해당 채용의 최종 합격자, 즉 실제 입사 대상 집단을 의미합니다.\n" +
+                          "   - '최종 불합격(전형 합격)' : 해당 전형 단계에서는 합격했지만, 이후 마지막 단계(예: 최종면접 등)에서 최종 합격을 하지 못한 집단을 의미합니다.\n" +
+                          "• avg: 각 group에 속한 인원들의 총점 평균으로, 동일한 점수 스케일에서 산출된 평균값입니다.\n\n",
+                        scope: "group",
+                        groupName,
+                        // perGroupStats에 정리된 값이 있으면 우선 사용, 없으면 현재 계산 결과 사용
+                        data: statsSnapshot.finalCompareData || finalCompareData,
+                      }}
                     />
                   </CopyableSection>
                 </div>
