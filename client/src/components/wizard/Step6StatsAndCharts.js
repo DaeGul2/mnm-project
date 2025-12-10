@@ -819,7 +819,6 @@ export default function Step6StatsAndCharts({
     }
   };
 
-
   // 🔹 PDF "보고서화" 핸들러 (전체 페이지 기준)
   // 🔹 Step6의 "현재 페이지"들을 순서대로 캡쳐해서 PDF로 만드는 핸들러
   const handleMakeReportPdf = async () => {
@@ -1383,6 +1382,17 @@ export default function Step6StatsAndCharts({
                   scope: "overview",
                   data: crossGroupSummary, // 각 지원분야별 n, passRate, avgTotal, cutoff, cutoffPercent
                 }}
+                autoConfig={
+                  projectToken
+                    ? {
+                      projectName,
+                      stageName,
+                      section: "overview_crossGroupSummary",
+                      groupName: null,
+                      projectToken,
+                    }
+                    : null
+                }
               />
             </CopyableSection>
           </div>
@@ -1859,8 +1869,18 @@ export default function Step6StatsAndCharts({
                           groupName,
                           data: statsSnapshot.summaryStats || null,
                         }}
+                        autoConfig={
+                          projectToken
+                            ? {
+                              projectName,
+                              stageName,
+                              section: "group_summaryStats",
+                              groupName,
+                              projectToken,
+                            }
+                            : null
+                        }
                       />
-
                     </CopyableSection>
 
                     {/* 전형 결과별 총점 평균 (그래프) */}
@@ -1960,8 +1980,18 @@ export default function Step6StatsAndCharts({
                           // 🔹 이 그래프에서 실제로 사용 중인 원본 데이터
                           data: phaseTotalAvgData,
                         }}
+                        autoConfig={
+                          projectToken
+                            ? {
+                              projectName,
+                              stageName,
+                              section: "group_phaseTotalAvg",
+                              groupName,
+                              projectToken,
+                            }
+                            : null
+                        }
                       />
-
                     </CopyableSection>
                   </div>
 
@@ -2192,8 +2222,18 @@ export default function Step6StatsAndCharts({
                         // perGroupStats에 정리돼 있으면 그걸 우선 사용, 아니면 현재 계산된 fieldStats 사용
                         data: statsSnapshot.fieldStats || fieldStats,
                       }}
+                      autoConfig={
+                        projectToken
+                          ? {
+                            projectName,
+                            stageName,
+                            section: "group_fieldStats",
+                            groupName,
+                            projectToken,
+                          }
+                          : null
+                      }
                     />
-
                   </CopyableSection>
 
                   {/* 최종 결과 비교 그래프 */}
@@ -2296,6 +2336,17 @@ export default function Step6StatsAndCharts({
                         // perGroupStats에 정리된 값이 있으면 우선 사용, 없으면 현재 계산 결과 사용
                         data: statsSnapshot.finalCompareData || finalCompareData,
                       }}
+                      autoConfig={
+                        projectToken
+                          ? {
+                            projectName,
+                            stageName,
+                            section: "group_finalCompare",
+                            groupName,
+                            projectToken,
+                          }
+                          : null
+                      }
                     />
                   </CopyableSection>
                 </div>
