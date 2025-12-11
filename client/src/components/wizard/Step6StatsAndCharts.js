@@ -353,6 +353,16 @@ export default function Step6StatsAndCharts({
   useEffect(() => {
     setHasLoadedCalc(false);
     setCalcStatus("");
+
+    // 전형 바뀔 때 기본값으로 리셋
+    setStyleConfig(defaultStyleConfig);
+    setSectionTitle("지원분야별 통계 · 그래프");
+    setInterpretations({
+      overview: { crossGroupSummary: "" },
+      perGroup: {},
+    });
+    setOpenGroups({});
+    // includedFieldsByGroup은 아래 initialIncludedFields useEffect에서 다시 세팅됨
   }, [roundId]);
 
   // ✅ groupData 변경 시 기본 순서 초기화 / 유지 (최초에는 지원분야명 오름차순)
@@ -963,10 +973,23 @@ export default function Step6StatsAndCharts({
 
         const data = await getRoundCalc(roundId, projectToken);
         if (!data || !data.calc) {
+          // 🔹 이 전형에는 저장된 Step6 설정이 전혀 없는 경우 → 기본값으로 정리
+          setStyleConfig(defaultStyleConfig);
+          setSectionTitle("지원분야별 통계 · 그래프");
+          setInterpretations({
+            overview: { crossGroupSummary: "" },
+            perGroup: {},
+          });
+          setOpenGroups({});
+          // groupData 기반 기본 필드 포함 상태로 초기화
+          setIncludedFieldsByGroup(initialIncludedFields);
+
+          setCalcStatus(
+            "저장된 Step6 계산 결과가 없어 현재 데이터로 새로 계산 중입니다."
+          );
           setHasLoadedCalc(true);
           return;
         }
-
         const { config } = data.calc || {};
         if (config && typeof config === "object") {
           if (config.styleConfig) {
@@ -994,9 +1017,18 @@ export default function Step6StatsAndCharts({
 
         setCalcStatus("이 전형의 저장된 Step6 설정을 불러왔습니다.");
       } catch (err) {
-        // 404면 "저장 없음"이니 조용히 패스
         const status = err?.response?.status;
         if (status === 404) {
+          // 🔹 이 전형에 대해 저장된 Step6 결과가 전혀 없음 → 기본 상태 유지/초기화
+          setStyleConfig(defaultStyleConfig);
+          setSectionTitle("지원분야별 통계 · 그래프");
+          setInterpretations({
+            overview: { crossGroupSummary: "" },
+            perGroup: {},
+          });
+          setOpenGroups({});
+          setIncludedFieldsByGroup(initialIncludedFields);
+
           setCalcStatus(
             "저장된 Step6 계산 결과가 없어 현재 데이터로 새로 계산 중입니다."
           );

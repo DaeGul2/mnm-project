@@ -6,6 +6,7 @@ import Step3SupportGrouping from "../components/wizard/Step3SupportGrouping";
 import Step4EvalUsage from "../components/wizard/Step4EvalUsage";
 import Step5ResultMapping from "../components/wizard/Step5ResultMapping";
 import Step6StatsAndCharts from "../components/wizard/Step6StatsAndCharts";
+import LoadingSpinner from "../components/common/LoadingSpinner";
 
 import {
   listProjects,
@@ -155,6 +156,7 @@ export default function EvalWizardPage() {
   const [loadingRounds, setLoadingRounds] = useState(false);
   const [roundStatus, setRoundStatus] = useState("");
   const [selectedRoundId, setSelectedRoundId] = useState(null);
+  const [isOpeningRound, setIsOpeningRound] = useState(false);
 
   // 전형 모드: 불러오기 / 새로 만들기
   const [roundMode, setRoundMode] = useState("load"); // "load" | "new"
@@ -456,7 +458,9 @@ export default function EvalWizardPage() {
       return;
     }
     try {
+      setIsOpeningRound(true);
       setRoundStatus("전형 데이터를 불러오는 중...");
+
       const { round: roundData, rows: rowData } = await getRoundDetail(
         round.id,
         projectToken
@@ -483,8 +487,11 @@ export default function EvalWizardPage() {
       } else {
         setRoundStatus("전형 데이터를 불러오는 중 오류가 발생했습니다.");
       }
+    } finally {
+      setIsOpeningRound(false);
     }
   };
+
 
   const handleDeleteRound = async (round) => {
     if (!projectToken) {
@@ -927,114 +934,119 @@ export default function EvalWizardPage() {
             </div>
           )}
         </div>
+        <div style={{ position: "relative" }}>
+          {/* Step Indicator */}
+          <div style={stepHeaderStyle}>
+            {steps.map((label, idx) => (
+              <div key={label} style={stepItemStyle(idx === activeStep)}>
+                {idx + 1}. {label}
+              </div>
+            ))}
+          </div>
 
-        {/* Step Indicator */}
-        <div style={stepHeaderStyle}>
-          {steps.map((label, idx) => (
-            <div key={label} style={stepItemStyle(idx === activeStep)}>
-              {idx + 1}. {label}
-            </div>
-          ))}
-        </div>
-
-        {/* 메인 카드 */}
-        <div
-          style={{
-            borderRadius: "12px",
-            backgroundColor: "#fff",
-            padding: "20px",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
-          }}
-        >
-          {activeStep === 0 && <Step1Upload onParsed={handleExcelParsed} />}
-          {activeStep === 1 && (
-            <Step2Mapping
-              headers={headers}
-              mapping={mapping}
-              onChangeMapping={setMapping}
-            />
-          )}
-          {activeStep === 2 && (
-            <Step3SupportGrouping
-              rows={rows}
-              supportField={mapping.supportField}
-              groups={supportGroups}
-              onChangeGroups={setSupportGroups}
-            />
-          )}
-          {activeStep === 3 && (
-            <Step4EvalUsage
-              rows={rows}
-              supportField={mapping.supportField}
-              groups={supportGroups}
-              evalFields={mapping.evalFields}
-            />
-          )}
-          {activeStep === 4 && (
-            <Step5ResultMapping
-              rows={rows}
-              phaseResultField={mapping.phaseResult}
-              finalResultField={mapping.finalResult}
-              resultMapping={resultMapping}
-              onChangeResultMapping={setResultMapping}
-            />
-          )}
-          {activeStep === 5 && (
-            <Step6StatsAndCharts
-              rows={rows}
-              mapping={mapping}
-              supportField={mapping.supportField}
-              supportGroups={supportGroups}
-              resultMapping={resultMapping}
-              projectName={selectedProjectName}
-              stageName={selectedRoundName}
-              roundId={selectedRoundId}
-              projectToken={projectToken}
-            />
-          )}
-        </div>
-
-        {/* Navigation Buttons */}
-        <div
-          style={{
-            marginTop: "16px",
-            display: "flex",
-            justifyContent: "space-between",
-          }}
-        >
-          <button
-            type="button"
-            onClick={handleBack}
-            disabled={activeStep === 0 || isSaving}
+          {/* 메인 카드 */}
+          <div
             style={{
-              padding: "8px 16px",
-              borderRadius: "8px",
-              border: "1px solid #ccc",
+              borderRadius: "12px",
               backgroundColor: "#fff",
-              cursor:
-                activeStep === 0 || isSaving ? "not-allowed" : "pointer",
-              opacity: activeStep === 0 || isSaving ? 0.5 : 1,
+              padding: "20px",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
             }}
           >
-            이전
-          </button>
-          <button
-            type="button"
-            onClick={handleNext}
-            disabled={!canGoNext() || isSaving}
+            {activeStep === 0 && <Step1Upload onParsed={handleExcelParsed} />}
+            {activeStep === 1 && (
+              <Step2Mapping
+                headers={headers}
+                mapping={mapping}
+                onChangeMapping={setMapping}
+              />
+            )}
+            {activeStep === 2 && (
+              <Step3SupportGrouping
+                rows={rows}
+                supportField={mapping.supportField}
+                groups={supportGroups}
+                onChangeGroups={setSupportGroups}
+              />
+            )}
+            {activeStep === 3 && (
+              <Step4EvalUsage
+                rows={rows}
+                supportField={mapping.supportField}
+                groups={supportGroups}
+                evalFields={mapping.evalFields}
+              />
+            )}
+            {activeStep === 4 && (
+              <Step5ResultMapping
+                rows={rows}
+                phaseResultField={mapping.phaseResult}
+                finalResultField={mapping.finalResult}
+                resultMapping={resultMapping}
+                onChangeResultMapping={setResultMapping}
+              />
+            )}
+            {activeStep === 5 && (
+              <Step6StatsAndCharts
+                key={selectedRoundId || "no-round"}   // ✅ 이게 핵심
+                rows={rows}
+                mapping={mapping}
+                supportField={mapping.supportField}
+                supportGroups={supportGroups}
+                resultMapping={resultMapping}
+                projectName={selectedProjectName}
+                stageName={selectedRoundName}
+                roundId={selectedRoundId}
+                projectToken={projectToken}
+              />
+            )}
+          </div>
+
+          {/* Navigation Buttons */}
+          <div
             style={{
-              padding: "8px 20px",
-              borderRadius: "8px",
-              border: "1px solid #1976d2",
-              backgroundColor:
-                canGoNext() && !isSaving ? "#1976d2" : "#90caf9",
-              color: "#fff",
-              cursor:
-                canGoNext() && !isSaving ? "pointer" : "not-allowed",
+              marginTop: "16px",
+              display: "flex",
+              justifyContent: "space-between",
             }}
           >
-            {activeStep === steps.length - 1 ? "완료" : "다음"}
-          </button>
+            <button
+              type="button"
+              onClick={handleBack}
+              disabled={activeStep === 0 || isSaving}
+              style={{
+                padding: "8px 16px",
+                borderRadius: "8px",
+                border: "1px solid #ccc",
+                backgroundColor: "#fff",
+                cursor:
+                  activeStep === 0 || isSaving ? "not-allowed" : "pointer",
+                opacity: activeStep === 0 || isSaving ? 0.5 : 1,
+              }}
+            >
+              이전
+            </button>
+            <button
+              type="button"
+              onClick={handleNext}
+              disabled={!canGoNext() || isSaving}
+              style={{
+                padding: "8px 20px",
+                borderRadius: "8px",
+                border: "1px solid #1976d2",
+                backgroundColor:
+                  canGoNext() && !isSaving ? "#1976d2" : "#90caf9",
+                color: "#fff",
+                cursor:
+                  canGoNext() && !isSaving ? "pointer" : "not-allowed",
+              }}
+            >
+              {activeStep === steps.length - 1 ? "완료" : "다음"}
+            </button>
+          </div>
+          {isOpeningRound && (
+            <LoadingSpinner message="전형 데이터를 불러오는 중입니다..." />
+          )}
         </div>
       </div>
     </div>
