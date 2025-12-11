@@ -25,6 +25,8 @@ import {
   HtmlInterpretationEditor,
   Step6ChartToolbox,
 } from "./Step6SharedComponents";
+import GroupScoreScatterChart from "./GroupScoreScatterChart";
+import { buildGroupScoreScatterData } from "../../utils/scoreDistributionUtils";
 
 // 🔹 Step6 화면에서 한 "페이지"당 허용할 대략적인 총 높이(px)
 const PAGE_HEIGHT_LIMIT_PX = 1200;
@@ -312,6 +314,12 @@ export default function Step6StatsAndCharts({
 
     return result;
   }, [rows, mapping, supportField, supportGroups, resultMapping]);
+
+  // ✅ 지원분야별 총점 Scatter용 원시 포인트
+  const groupScatterData = useMemo(
+    () => buildGroupScoreScatterData(groupData),
+    [groupData]
+  );
 
   const initialIncludedFields = useMemo(() => {
     const res = {};
@@ -1549,6 +1557,7 @@ export default function Step6StatsAndCharts({
           const groupInterpretations =
             interpretations.perGroup?.[groupName] || {};
           const statsSnapshot = perGroupStats[groupName] || {};
+          const scatterPoints = groupScatterData[groupName] || [];
           return (
             <div
               key={groupName}
@@ -1715,7 +1724,36 @@ export default function Step6StatsAndCharts({
                       </div>
                     )}
                   </CopyableSection>
+                  <CopyableSection
+                    title="전형 결과별 총점 분포"
+                    onRegisterSection={registerSectionForGroup}
+                    sectionId="02_scoreScatter"
+                    sectionType="그래프"
+                    hideToolbar={isReportMode}
+                  >
+                    {!scatterPoints.length ||
+                      !statsSnapshot.summaryStats ? (
+                      <div
+                        style={{
+                          fontSize: "12px",
+                          color: "#999",
+                        }}
+                      >
+                        표시할 데이터가 없습니다.
+                      </div>
+                    ) : (
+                      <GroupScoreScatterChart
+                        groupName={groupName}
+                        points={scatterPoints}
+                        summaryStats={statsSnapshot.summaryStats}
+                        chartWidthScale={chartWidthScale}
+                        chartHeight={chartHeight}
+                        showCartesianGrid={showCartesianGrid}
+                        showLegend={showLegend}
+                      />
+                    )}
 
+                  </CopyableSection>
                   {/* 요약 통계 + 전형 결과별 합/불 평균 2열 */}
                   <div
                     style={{
